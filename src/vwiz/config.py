@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Active provider, switchable in the Settings modal (persisted to
     # data/user_settings.json; LLM_PROVIDER in .env also works). No silent
     # fallback: the selected provider is the one that gets called.
-    llm_provider: str = "google"
+    llm_provider: str = "groq"
     # Local provider via the Ollama daemon. No key needed, but the daemon must
     # be up (`ollama serve`) with a model pulled (`ollama pull qwen3:8b`).
     ollama_model: str = "qwen3:8b"
