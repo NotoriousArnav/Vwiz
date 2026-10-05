@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import json
 import re
 import subprocess
 import uuid
@@ -54,9 +55,14 @@ _STYLES = """
 # Layout
 # --------------------------------------------------------------------------- #
 def main() -> None:
-    settings = get_settings()
+    settings = _effective_settings(get_settings())
     settings.ensure_dirs()
     st.markdown(_STYLES, unsafe_allow_html=True)
+
+    # The sidebar button only sets this flag; the modal opens here, before any
+    # column renders, so it overlays the whole page.
+    if st.session_state.pop("settings_open", False):
+        _settings_dialog()
 
     with st.sidebar:
         _sidebar(settings)
@@ -121,12 +127,26 @@ def _sidebar(settings) -> None:
 
 @st.dialog("Settings", width="large")
 def _settings_dialog() -> None:
-    settings = get_settings()
-    st.caption("Changes apply to new work. Credentials are read from `.env`.")
+    """Provider + model choice. Keys stay in `.env`; this saves to disk."""
+    settings = _effective_settings(get_settings())
+    st.caption("Provider and model ids save to `data/user_settings.json`. API keys stay in `.env`.")
 
-    st.markdown("**Model**")
-    st.text_input("Agent model", settings.gemini_agent_model, disabled=True)
-    st.text_input("Fast model", settings.gemini_fast_model, disabled=True)
+    st.markdown("**Provider**")
+    providers = ["google", "groq", "ollama"]
+    st.selectbox(
+        "LLM provider",
+        providers,
+        index=providers.index(settings.llm_provider) if settings.llm_provider in providers else 0,
+        key="set_provider",
+    )
+    st.caption(_provider_status(settings))
+
+    st.markdown("**Models**")
+    st.text_input("Google model", settings.gemini_agent_model, key="set_gemini")
+    st.text_input("Groq model", settings.groq_model, key="set_groq")
+    cols = st.columns(2)
+    cols[0].text_input("Ollama model", settings.ollama_model, key="set_ollama")
+    cols[1].text_input("Ollama URL", settings.ollama_base_url, key="set_ollama_url")
 
     st.markdown("**Voice**")
     st.text_input("Chirp 3 voice", settings.tts_voice, disabled=True)
@@ -150,8 +170,112 @@ def _settings_dialog() -> None:
     else:
         st.success("Credentials present.")
 
-    if st.button("Close", type="primary"):
+    actions = st.columns(2)
+    if actions[0].button("Save", type="primary", width="stretch"):
+        _save_settings_dialog()
+    if actions[1].button("Close", width="stretch"):
         st.rerun()
+
+
+# Keys the modal may persist. Everything else (notably API keys) comes from
+# `.env` and is never written by the UI.
+_ALLOWED_OVERRIDES = frozenset(
+    {
+        "llm_provider",
+        "gemini_agent_model",
+        "gemini_fast_model",
+        "groq_model",
+        "ollama_model",
+        "ollama_base_url",
+    }
+)
+
+
+def _override_path(settings) -> Path:
+    return settings.data_dir / "user_settings.json"
+
+
+def _load_overrides(settings) -> dict:
+    path = _override_path(settings)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if k in _ALLOWED_OVERRIDES}
+
+
+def _effective_settings(base):
+    """Env settings with the modal's saved overrides applied, if any."""
+    overrides = _load_overrides(base)
+    if not overrides:
+        return base
+    try:
+        return base.model_copy(update=overrides)
+    except TypeError, ValueError:
+        return base
+
+
+def _save_settings_dialog() -> None:
+    """Persist the modal's widget values, then reload with them applied."""
+    base = get_settings()
+    provider = st.session_state.get("set_provider", base.llm_provider)
+    if provider not in ("google", "groq", "ollama"):
+        st.error(f"Unknown provider {provider!r}; pick google, groq, or ollama.")
+        return
+    overrides = {
+        "llm_provider": provider,
+        "gemini_agent_model": st.session_state.get("set_gemini", base.gemini_agent_model),
+        "groq_model": st.session_state.get("set_groq", base.groq_model),
+        "ollama_model": st.session_state.get("set_ollama", base.ollama_model),
+        "ollama_base_url": st.session_state.get("set_ollama_url", base.ollama_base_url),
+    }
+    try:
+        base.ensure_dirs()
+        _override_path(base).write_text(json.dumps(overrides, indent=2), encoding="utf-8")
+    except OSError as exc:
+        st.error(f"Could not save settings ({exc}).")
+        return
+    st.rerun()
+
+
+def _provider_status(settings) -> str:
+    """One-line health of the selected provider, for display under the picker."""
+    provider = (settings.llm_provider or "google").lower()
+    if provider == "google":
+        return (
+            "GOOGLE_API_KEY is set."
+            if settings.google_api_key
+            else "GOOGLE_API_KEY is missing — add it to `.env`."
+        )
+    if provider == "groq":
+        return (
+            "GROQ_API_KEY is set."
+            if settings.groq_api_key
+            else "GROQ_API_KEY is missing — add it to `.env`."
+        )
+    if provider == "ollama":
+        return _ollama_status(settings.ollama_base_url)
+    return f"Unknown provider {settings.llm_provider!r}."
+
+
+def _ollama_status(base_url: str) -> str:
+    """Ping the local daemon with a short timeout; never raises."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return "Ollama daemon down — run `ollama serve`."
+    names = [m.get("name", "?") for m in data.get("models", [])]
+    if not names:
+        return "Ollama up, no models installed — run `ollama pull qwen3:8b`."
+    shown = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")
+    return f"Ollama up, {len(names)} model(s): {shown}."
 
 
 # --------------------------------------------------------------------------- #

@@ -15,6 +15,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 
 from vwiz.config import Settings
 from vwiz.models import Message, Role
@@ -52,25 +53,27 @@ def _groq_llm(settings: Settings, *, temperature: float = 0.7) -> ChatGroq:
     )
 
 
-def _provider_chain(settings: Settings) -> list[tuple[str, object]]:
-    """Providers in priority order. A provider is only usable if its key is set.
-
-    Gemini is primary; Groq is the fallback. Later providers don't get contacted
-    unless an earlier one fails before producing any text.
-    """
-    chain: list[tuple[str, object]] = []
-    if settings.google_api_key:
-        chain.append(("google", lambda: get_llm(settings)))
-    if settings.groq_api_key:
-        chain.append(("groq", lambda: _groq_llm(settings)))
-    return chain
+def _ollama_llm(settings: Settings, *, temperature: float = 0.7) -> ChatOllama:
+    """Build the local chat model. No key; fails at call time if down."""
+    return ChatOllama(
+        model=settings.ollama_model,
+        base_url=settings.ollama_base_url,
+        temperature=temperature,
+    )
 
 
-def _chain_or_raise(chain: list[tuple[str, object]]) -> None:
-    if not chain:
-        raise RuntimeError(
-            "No LLM provider configured. Set GOOGLE_API_KEY and/or GROQ_API_KEY in .env."
-        )
+def get_active_llm(settings: Settings, *, temperature: float = 0.7):
+    """The user-selected provider. Raises with a fix, not a traceback."""
+    provider = (settings.llm_provider or "google").lower()
+    if provider == "google":
+        return get_llm(settings, temperature=temperature)
+    if provider == "groq":
+        return _groq_llm(settings, temperature=temperature)
+    if provider == "ollama":
+        return _ollama_llm(settings, temperature=temperature)
+    raise RuntimeError(
+        f"Unknown LLM provider {settings.llm_provider!r}; pick google, groq, or ollama in Settings."
+    )
 
 
 _SYSTEM_PROMPT_PATH = Path(__file__).with_name("system.md")
@@ -253,33 +256,19 @@ def stream_reply(
     because `to_langchain` only carries message text — without this the model
     never sees the files and correctly reports it cannot read them.
 
-    Falls back to the next provider in the chain (Gemini, then Groq) only when a
-    provider fails before producing any output. Once tokens have flowed, we do
-    not switch models and interleave a different voice into a partial reply.
+    The provider is the user's explicit Settings choice, not a silent chain:
+    misconfiguration raises before any output and surfaces as a chat bubble.
     """
-    chain = _provider_chain(settings)
-    _chain_or_raise(chain)
     turns = list(messages)
     history = to_langchain(turns)
     doc_block = document_context(turns, settings, documents=documents)
     if doc_block:
         history.append(HumanMessage(content=doc_block))
-    last_error: Exception | None = None
-    yielded = False
-    for _name, factory in chain:
-        try:
-            for chunk in factory().stream(history):
-                text = chunk_text(chunk)
-                if text:
-                    yielded = True
-                    yield text
-            return
-        except Exception as exc:
-            last_error = exc
-            if yielded:
-                raise
-    if last_error is not None:
-        raise last_error
+    active = get_active_llm(settings)
+    for chunk in active.stream(history):
+        text = chunk_text(chunk)
+        if text:
+            yield text
 
 
 def make_title(first_message: str, settings: Settings) -> str:
@@ -294,15 +283,11 @@ def make_title(first_message: str, settings: Settings) -> str:
         ),
         HumanMessage(content=first_message),
     ]
-    chain = _provider_chain(settings)
-    if not chain:
-        return " ".join(first_message.split())[:40]
-    for _name, factory in chain:
-        try:
-            out = factory().invoke(prompt)
-            title = " ".join(chunk_text(out).split())[:60]
-            if title:
-                return title
-        except Exception:
-            continue
+    try:
+        out = get_active_llm(settings).invoke(prompt)
+        title = " ".join(chunk_text(out).split())[:60]
+        if title:
+            return title
+    except Exception:
+        pass
     return " ".join(first_message.split())[:40]
