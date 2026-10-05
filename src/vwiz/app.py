@@ -347,12 +347,16 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
             if need_title and first_user
             else None
         )
-        text, code, tool_names, script = _agent_or_direct(chat, settings)
+        text, code, tool_names, script, notice = _agent_or_direct(chat, settings)
+        if notice:
+            text = f"{text}\n\n⚠️ {notice}"
 
         if script:
             text = _run_chain_stage(chat, settings, script, text, code)
         elif code is not None:
-            # No beats (ordinary chat): single-scene path.
+            # No beats (ordinary chat): single-scene path. The missing script
+            # is said out loud so a skipped chain never looks like success.
+            chat.chain_state = "skipped: model returned no beat script"
             try:
                 ast.parse(code)
                 chat.code = code
@@ -362,6 +366,8 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
                     f"{text}\n\n⚠️ The generated scene failed a syntax check "
                     f"and was not saved: {exc}"
                 )
+            if "No narration yet" not in text:
+                text = f"{text}\n\nNo narration yet — the model returned no beat script."
 
         with st.chat_message("assistant"):
             if tool_names:
@@ -390,6 +396,7 @@ def _run_chain_stage(
     except Exception as exc:
         # Script is kept; audio/code did not land. Fall back to the agent's
         # code if it sent any, so the turn is not a total loss.
+        chat.chain_state = f"failed: {exc}"[:300]
         if fallback_code is not None:
             try:
                 ast.parse(fallback_code)
@@ -411,25 +418,37 @@ def _run_chain_stage(
         chat.code = result.code
         chat.code_filename = "scene.py"
     except SyntaxError as exc:
+        chat.chain_state = f"failed: timed code syntax error ({exc})"
         return f"{text}\n\n⚠️ Timed code failed a syntax check and was not saved: {exc}"
     total = result.beats[-1].starts_at + result.beats[-1].seconds if result.beats else 0.0
+    whisper_n = sum(1 for s in result.timing_sources if s == "whisper")
+    timing = (
+        f"whisper word timings on {whisper_n}/{len(result.beats)} beat(s)"
+        if whisper_n
+        else "rms fallback timings (Groq Whisper unavailable)"
+    )
     lines = [
         f"{text}",
         "",
         f"🎙 {len(result.beats)} beat(s), {total:.1f}s narrated, "
-        f"{len(result.scene_names)} scene(s) timed to it.",
+        f"{len(result.scene_names)} scene(s) timed to it ({timing}).",
     ]
     if result.failed:
         lines.append(f"⚠️ Skipped {len(result.failed)} beat(s): {'; '.join(result.failed)}")
+    chat.chain_state = f"ran: {len(result.beats)} beats, {total:.1f}s ({timing})"
     return "\n".join(lines)
 
 
-def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str], str | None]:
+def _agent_or_direct(
+    chat: Chat, settings
+) -> tuple[str, str | None, list[str], str | None, str | None]:
     """One reply via the agent, falling back to the direct model on any failure.
 
-    Returns (text, code, tool_names, script). The fallback keeps the app usable
-    through quota exhaustion, tier token ceilings, MCP outages, or a sleeping
-    Ollama — the agent is an upgrade, never a dependency.
+    Returns (text, code, tool_names, script, notice). `notice` carries the
+    agent-failure reason when the fallback ran, so the transcript can say so
+    instead of silently succeeding. The fallback keeps the app usable through
+    quota exhaustion, tier token ceilings, MCP outages, or a sleeping Ollama —
+    the agent is an upgrade, never a dependency.
     """
     import asyncio
 
@@ -438,15 +457,15 @@ def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str], 
     try:
         with st.spinner("Agent working — researching, reading skill, drafting…"):
             result = asyncio.run(asyncio.wait_for(run_agent_turn(chat, settings), 240))
-        return result.text, result.code, result.tool_names, result.script
-    except Exception:
-        pass
+        return result.text, result.code, result.tool_names, result.script, None
+    except Exception as exc:
+        notice = f"Agent path unavailable ({type(exc).__name__}: {exc}) — used direct model."
     try:
         raw = "".join(llm.stream_reply(chat.messages, settings, documents=chat.documents))
     except Exception as exc:
-        return f"⚠️ Could not reach the model: {exc}", None, [], None
+        return f"⚠️ Could not reach the model: {exc}", None, [], None, notice
     text, code = llm.parse_reply(raw)
-    return text, code, [], llm.extract_beat_script(raw)
+    return text, code, [], llm.extract_beat_script(raw), notice
 
 
 def _first_user_text(chat: Chat) -> str:
@@ -813,11 +832,16 @@ def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
 
 
 def _render_captions(chat: Chat) -> None:
-    """SRT download plus beat timing summary. The narration box is gone."""
-    if not chat.beats:
+    """Chain state plus SRT download. A skipped chain is said out loud."""
+    state = getattr(chat, "chain_state", None)
+    if chat.beats:
+        total = chat.beats[-1].starts_at + chat.beats[-1].seconds if chat.beats else 0.0
+        st.caption(f"🎙 {len(chat.beats)} beat(s), {total:.1f}s narrated, captions embedded.")
+    elif state:
+        st.caption(f"🎙 {state}")
+    else:
+        st.caption("No narration yet — send a visualization prompt to start the chain.")
         return
-    total = chat.beats[-1].starts_at + chat.beats[-1].seconds if chat.beats else 0.0
-    st.caption(f"🎙 {len(chat.beats)} beat(s), {total:.1f}s narrated, captions embedded.")
     if chat.srt_path and chat.srt_path.exists():
         import contextlib
 
@@ -863,7 +887,7 @@ def _migrate_chat(chat) -> Chat:
     the missing fields and revalidate through the current model, which fills
     defaults. Returns the same object when nothing is missing.
     """
-    for field in ("script", "beats", "srt_path"):
+    for field in ("script", "beats", "srt_path", "chain_state"):
         try:
             getattr(chat, field)
         except AttributeError:

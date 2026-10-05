@@ -25,17 +25,25 @@ class ChainResult:
         code: str,
         scene_names: list[str],
         failed: list[str] | None = None,
+        timing_sources: list[str] | None = None,
     ) -> None:
         self.beats = beats
         self.srt_path = srt_path
         self.code = code
         self.scene_names = scene_names
         self.failed = failed or []
+        self.timing_sources = timing_sources or []
 
 
 def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
-    """Synthesize beats, extract timestamps, generate one Scene per beat."""
+    """Synthesize beats, timestamp them, generate one Scene per beat.
+
+    Timing chain per beat: TTS wav header (exact duration) → Groq Whisper word
+    timestamps (halts and nuances) → RMS envelope fallback when Whisper fails.
+    Codegen sees the word timeline so holds land on real speech pauses.
+    """
     beats = audio_mod.synthesize_beats(script, chat_id, settings)
+    timing_sources = audio_mod.transcribe_beats(beats, settings)
 
     codes: list[str] = []
     scene_names: list[str] = []
@@ -49,6 +57,7 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
                 pauses=list(beat.pauses or []),
                 settings=settings,
                 index=index,
+                words=list(beat.words or []),
             )
         except Exception as exc:  # noqa: BLE001 - one bad beat skips, rest ship
             failed.append(f"{beat.name}: {exc}")
@@ -63,5 +72,10 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
     combined = llm.combine_beat_codes(codes)
     srt_path = audio_mod.write_srt(beats, chat_id, settings)
     return ChainResult(
-        beats=beats, srt_path=srt_path, code=combined, scene_names=scene_names, failed=failed
+        beats=beats,
+        srt_path=srt_path,
+        code=combined,
+        scene_names=scene_names,
+        failed=failed,
+        timing_sources=timing_sources,
     )

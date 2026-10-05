@@ -25,6 +25,8 @@ __all__ = [
     "synthesize",
     "synthesize_beats",
     "split_beats",
+    "parse_beat_mood",
+    "transcribe_beats",
     "detect_pauses",
     "build_srt",
     "write_srt",
@@ -51,11 +53,51 @@ _TTS_WIDTH = 2
 _MAX_SCRIPT_CHARS = 5_000
 
 
+def parse_beat_mood(beat_text: str) -> tuple[str, str]:
+    """Split a `mood:` direction line from the speakable text.
+
+    The first non-empty line matching `mood: ...` (case-insensitive) is
+    direction for `speech_metadata.style`, never spoken. Returns
+    (mood, speak_text). Absent mood returns ("", full text).
+    """
+    import re
+
+    lines = beat_text.split("\n")
+    mood = ""
+    kept: list[str] = []
+    took = False
+    for line in lines:
+        if not took and re.match(r"^\s*mood\s*:\s*(.+?)\s*$", line, re.IGNORECASE):
+            mood = re.sub(r"^\s*mood\s*:\s*", "", line, flags=re.IGNORECASE).strip()
+            took = True
+            continue
+        kept.append(line)
+    return mood, "\n".join(kept).strip()
+
+
+def _clean_caption(text: str) -> str:
+    """Caption text: drop the mood line and inline vocal tags, collapse space."""
+    import re
+
+    _, speak = parse_beat_mood(text)
+    speak = re.sub(r"<[^>]+>", " ", speak)
+    return " ".join(speak.split())
+
+
 def synthesize(
-    text: str, chat_id: str, settings: Settings, *, name: str = "narration"
+    text: str, chat_id: str, settings: Settings, *, name: str = "narration", style: str = ""
 ) -> tuple[Path, float]:
-    """Synthesize `text` to wav. Returns (wav path, seconds). Raises AudioError."""
-    script = text.strip()
+    """Synthesize `text` to wav. Returns (wav path, seconds). Raises AudioError.
+
+    Expressive path first: the Interactions API carries `speech_metadata.style`
+    (the beat's mood) plus inline `<short pause>` tags, which the legacy
+    `generate_content_stream` path cannot express. Falls back to the legacy
+    flat stream when Interactions fails, so TTS is never blocked by a schema
+    change. Unary Interactions output is WAV with a RIFF header — written
+    directly, never re-wrapped.
+    """
+    _, speak = parse_beat_mood(text)
+    script = speak.strip()
     if not script:
         raise AudioError("nothing to narrate — the script is empty")
     if len(script) > _MAX_SCRIPT_CHARS:
@@ -63,6 +105,59 @@ def synthesize(
     if not settings.google_api_key:
         raise AudioError("narration needs GOOGLE_API_KEY in .env (any chat provider works)")
 
+    out = settings.renders_dir / chat_id / f"{name}.wav"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _synthesize_interactions(script, out, settings, style=style)
+    except Exception as exc:
+        # Interactions is new surface; the legacy stream is the flat fallback.
+        try:
+            _synthesize_legacy(script, out, settings)
+        except Exception as legacy_exc:
+            raise AudioError(
+                f"TTS request failed (interactions: {exc}; legacy: {legacy_exc})"
+            ) from legacy_exc
+    with wave.open(str(out), "rb") as wav:
+        seconds = wav.getnframes() / wav.getframerate()
+    if seconds <= 0:
+        raise AudioError("TTS returned zero-length audio")
+    return out, seconds
+
+
+def _synthesize_interactions(script: str, out: Path, settings: Settings, *, style: str) -> None:
+    """One unary Interactions call; writes WAV bytes directly. Raises on failure."""
+    import base64
+
+    from google import genai
+
+    client = genai.Client(api_key=settings.google_api_key)
+    annotation: dict = {"type": "speech_metadata"}
+    if style.strip():
+        annotation["style"] = style.strip()[:500]
+    interaction = client.interactions.create(
+        model=settings.tts_model,
+        input=[
+            {
+                "type": "user_input",
+                "content": [{"type": "text", "text": script, "annotations": [annotation]}],
+            }
+        ],
+        response_format={"type": "audio"},
+        generation_config={"speech_config": [{"voice": settings.tts_voice}]},
+    )
+    output = getattr(interaction, "output_audio", None)
+    data = getattr(output, "data", None) if output is not None else None
+    if not data:
+        raise RuntimeError("Interactions returned no audio data")
+    raw = base64.b64decode(data)
+    if raw[:4] != b"RIFF":
+        raise RuntimeError("Interactions output was not WAV as documented")
+    out.write_bytes(raw)
+
+
+def _synthesize_legacy(script: str, out: Path, settings: Settings) -> None:
+    """Flat fallback: legacy stream, raw PCM wrapped in a wav header."""
     from google import genai
     from google.genai import types
 
@@ -76,36 +171,27 @@ def synthesize(
             language_code=settings.tts_language,
         ),
     )
-    try:
-        stream = client.models.generate_content_stream(
-            model=settings.tts_model, contents=script, config=config
-        )
-        chunks: list[bytes] = []
-        for chunk in stream:
-            for candidate in chunk.candidates or []:
-                content = getattr(candidate, "content", None)
-                for part in getattr(content, "parts", None) or []:
-                    inline = getattr(part, "inline_data", None)
-                    if inline and inline.data:
-                        chunks.append(
-                            inline.data if isinstance(inline.data, bytes) else bytes(inline.data)
-                        )
-    except Exception as exc:
-        raise AudioError(f"TTS request failed ({type(exc).__name__}: {exc})") from exc
+    stream = client.models.generate_content_stream(
+        model=settings.tts_model, contents=script, config=config
+    )
+    chunks: list[bytes] = []
+    for chunk in stream:
+        for candidate in chunk.candidates or []:
+            content = getattr(candidate, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                inline = getattr(part, "inline_data", None)
+                if inline and inline.data:
+                    chunks.append(
+                        inline.data if isinstance(inline.data, bytes) else bytes(inline.data)
+                    )
     if not chunks:
-        raise AudioError("TTS returned no audio — retry, or shorten the script")
-
-    out = settings.renders_dir / chat_id / f"{name}.wav"
-    out.parent.mkdir(parents=True, exist_ok=True)
+        raise RuntimeError("legacy stream returned no audio")
     pcm = b"".join(chunks)
     with wave.open(str(out), "wb") as wav:
         wav.setnchannels(_TTS_CHANNELS)
         wav.setsampwidth(_TTS_WIDTH)
         wav.setframerate(_TTS_RATE)
         wav.writeframes(pcm)
-    with wave.open(str(out), "rb") as wav:
-        seconds = wav.getnframes() / wav.getframerate()
-    return out, seconds
 
 
 @dataclass
@@ -120,10 +206,15 @@ class BeatAudio:
     text: str = ""
     # Intra-beat silences, (start, end) seconds relative to this beat.
     pauses: list[tuple[float, float]] = None  # type: ignore[assignment]
+    # Delivery direction (`mood:` line), also the word timeline when known.
+    style: str = ""
+    words: list[tuple[str, float, float]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.pauses is None:
             self.pauses = []
+        if self.words is None:
+            self.words = []
 
 
 def split_beats(script: str) -> list[tuple[str, str]]:
@@ -162,21 +253,28 @@ def split_beats(script: str) -> list[tuple[str, str]]:
 def synthesize_beats(script: str, chat_id: str, settings: Settings) -> list[BeatAudio]:
     """Synthesize each beat separately. Returns the timing manifest.
 
-    Durations come from the wav headers — sample-accurate and free. Whisper
-    only becomes necessary for single-blob or user-uploaded audio, where we
-    did not author the boundaries; that is a later phase, not this one.
+    Durations come from the wav headers — sample-accurate and free. Each
+    beat's `mood:` line drives expressive delivery; word-level timestamps
+    come later via Whisper (`transcribe_beats`), with RMS pauses as fallback.
     """
     import re
 
     manifest: list[BeatAudio] = []
     offset = 0.0
     for index, (name, text) in enumerate(split_beats(script)):
+        mood, _ = parse_beat_mood(text)
         slug = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_").lower() or f"beat{index}"
-        wav, seconds = synthesize(text, chat_id, settings, name=f"beat_{slug}")
+        wav, seconds = synthesize(text, chat_id, settings, name=f"beat_{slug}", style=mood)
         pauses = detect_pauses(wav)
         manifest.append(
             BeatAudio(
-                name=name, wav=wav, seconds=seconds, starts_at=offset, text=text, pauses=pauses
+                name=name,
+                wav=wav,
+                seconds=seconds,
+                starts_at=offset,
+                text=text,
+                pauses=pauses,
+                style=mood,
             )
         )
         offset += seconds
@@ -245,17 +343,43 @@ def _srt_time(t: float) -> str:
 
 
 def build_srt(beats: list[BeatAudio]) -> str:
-    """One cue per beat: manifest offsets plus the speakable text."""
+    """Caption cues: Whisper segments when transcribed, else one cue per beat."""
     out: list[str] = []
-    for i, beat in enumerate(beats, 1):
-        body = " ".join((beat.text or "").split())
+    index = 1
+    for beat in beats:
+        if beat.words and beat.seconds > 0:
+            # Group words into cues at pauses ≥0.4s or 8s caps — captions snap
+            # to speech instead of spanning the whole beat.
+            group: list[tuple[str, float, float]] = []
+            for word, ws, we in beat.words:
+                if group and (ws - group[-1][2] >= 0.4 or we - group[0][1] >= 8.0):
+                    body = " ".join(w for w, _, _ in group)
+                    if body:
+                        s = beat.starts_at + group[0][1]
+                        e = beat.starts_at + group[-1][2]
+                        if e > s:
+                            out.append(f"{index}\n{_srt_time(s)} --> {_srt_time(e)}\n{body}\n")
+                            index += 1
+                    group = []
+                group.append((word, ws, we))
+            if group:
+                body = " ".join(w for w, _, _ in group)
+                if body:
+                    s = beat.starts_at + group[0][1]
+                    e = beat.starts_at + group[-1][2]
+                    if e > s:
+                        out.append(f"{index}\n{_srt_time(s)} --> {_srt_time(e)}\n{body}\n")
+                        index += 1
+            continue
+        body = _clean_caption(beat.text or "")
         if not body or beat.seconds <= 0:
             continue
         start = beat.starts_at
         end = beat.starts_at + beat.seconds
         if end <= start:
             continue
-        out.append(f"{i}\n{_srt_time(start)} --> {_srt_time(end)}\n{body}\n")
+        out.append(f"{index}\n{_srt_time(start)} --> {_srt_time(end)}\n{body}\n")
+        index += 1
     return "\n".join(out)
 
 
@@ -406,6 +530,73 @@ def mux_final(
             f"final mux failed (exit {proc.returncode}):\n{(proc.stderr or '')[-1500:]}"
         )
     return out
+
+
+def transcribe_beats(beats: list[BeatAudio], settings: Settings) -> list[str]:
+    """Word timestamps per beat via Groq Whisper; RMS fallback never blocks.
+
+    Mutates each beat in place: `words` becomes [(word, start, end)] in
+    beat-relative seconds and `pauses` becomes the ≥250 ms gaps between words.
+    Beats that fail (no key, TPM cap, network) keep their RMS pauses. Returns
+    the per-beat source tags ("whisper" or "rms") for the transcript line.
+    """
+    sources: list[str] = []
+    if not settings.groq_api_key:
+        return ["rms"] * len(beats)
+    for beat in beats:
+        try:
+            words = _whisper_words(beat.wav, settings)
+        except Exception:
+            sources.append("rms")
+            continue
+        if not words:
+            sources.append("rms")
+            continue
+        beat.words = words
+        gaps: list[tuple[float, float]] = []
+        for (_, _, prev_end), (_, next_start, _) in zip(words, words[1:], strict=False):
+            if next_start - prev_end >= 0.25:
+                gaps.append((round(prev_end, 2), round(next_start, 2)))
+        if gaps:
+            beat.pauses = gaps
+        sources.append("whisper")
+    return sources
+
+
+def _whisper_words(wav: Path, settings: Settings) -> list[tuple[str, float, float]]:
+    """One Groq transcription; returns beat-relative (word, start, end)."""
+    from groq import Groq
+
+    client = Groq(api_key=settings.groq_api_key)
+    with open(wav, "rb") as handle:
+        result = client.audio.transcriptions.create(
+            file=(Path(wav).name, handle.read()),
+            model="whisper-large-v3",
+            response_format="verbose_json",
+            timestamp_granularities=["word", "segment"],
+            language="en",
+            temperature=0.0,
+        )
+    raw_words = getattr(result, "words", None)
+    if raw_words is None and isinstance(result, dict):
+        raw_words = result.get("words")
+    out: list[tuple[str, float, float]] = []
+    for item in raw_words or []:
+        if isinstance(item, dict):
+            word, start, end = item.get("word"), item.get("start"), item.get("end")
+        else:
+            word, start, end = (
+                getattr(item, "word", None),
+                getattr(item, "start", None),
+                getattr(item, "end", None),
+            )
+        if not word or start is None or end is None:
+            continue
+        try:
+            out.append((str(word).strip(), float(start), float(end)))
+        except TypeError, ValueError:
+            continue
+    return [(w, s, e) for w, s, e in out if w and e > s >= 0]
 
 
 def probe_duration(path: Path) -> float:

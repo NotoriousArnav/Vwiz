@@ -111,21 +111,10 @@ block at the end:
 <the self-contained Scene class>
 ```
 
-For an ordinary conversational reply there is no fence.
-
-When the user asked for a visualization, also append the narration script as
-a second fenced block after any code fence, so the pipeline can synthesize it
-before writing timed code:
-
-```beats
-### Beat: <name>
-<plain speakable prose, formulas as words>
-### Beat: <name>
-<plain speakable prose>
-```
-
-Two to four beats. The beats block carries the voiceover; the chat prose
-around it carries the explanation. Never emit raw JSON, fenced or otherwise.
+For an ordinary conversational reply there is no fence. The narration script
+contract lives in ## Script above (one ```beats block when the user asked
+for a visualization) — follow it; this section does not restate it. Never
+emit raw JSON, fenced or otherwise.
 """
 
 
@@ -306,12 +295,23 @@ def build_beat_prompt(
     beat_seconds: float,
     pauses: list[tuple[float, float]],
     scene_name: str,
+    words: list[tuple[str, float, float]] | None = None,
 ) -> str:
     """One small codegen prompt: beat transcript plus an exact duration budget."""
     pause_lines = (
         "\n".join(f"- pause {a:.2f}s–{b:.2f}s (hold the frame, e.g. wait())" for a, b in pauses)
         or "- no detected pauses; pace evenly"
     )
+    timeline = ""
+    if words:
+        # Cap the timeline so long beats stay small: first 40 words carry the
+        # shape; pauses already mark the rest.
+        shown = words[:40]
+        lines = "\n".join(f"- {w!r} {s:.2f}s–{e:.2f}s" for w, s, e in shown)
+        extra = f"\n- …and {len(words) - len(shown)} more words" if len(words) > len(shown) else ""
+        timeline = (
+            f"Word timeline (beat-relative seconds, from speech recognition):\n{lines}{extra}\n"
+        )
     return (
         "You write one self-contained Manim Community v0.21 Scene class, runnable as written. "
         "No placeholders, no invented helpers, no asset files.\n\n"
@@ -324,6 +324,7 @@ def build_beat_prompt(
         "plus wait() calls so construct() fills the budget within ±0.5s; "
         "never exceed it by more than 1s. "
         "Manim plays each animation for its run_time, so sum run_times + waits to the budget.\n"
+        f"{timeline}"
         f"Detected speech pauses inside the beat (beat-relative seconds):\n{pause_lines}\n"
         "Align holds and transitions to those pauses where natural.\n\n"
         "Target Manim Community v0.21 exactly; verify any unfamiliar API before using it. "
@@ -339,6 +340,7 @@ def generate_beat_code(
     pauses: list[tuple[float, float]],
     settings: Settings,
     index: int = 0,
+    words: list[tuple[str, float, float]] | None = None,
 ) -> tuple[str, str]:
     """Generate one beat's Scene via the active provider. Returns (scene_name, code)."""
     scene_name = _beat_class_name(beat_name, index)
@@ -348,6 +350,7 @@ def generate_beat_code(
         beat_seconds=beat_seconds,
         pauses=pauses,
         scene_name=scene_name,
+        words=words,
     )
     active = get_active_llm(settings, temperature=0.4)
     from langchain_core.messages import HumanMessage, SystemMessage

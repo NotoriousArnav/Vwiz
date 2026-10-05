@@ -39,12 +39,25 @@ verifiably correct over sounding confident.
 ## Script
 
 - When the user asks for a visualization, the narration script is a
-  first-class artifact, not prose mined from the answer. Write it as beat
-  sections with `### Beat: <name>` headings, one beat per visual idea, two to
-  four beats for a short explainer.
+  first-class artifact, not prose mined from the answer. Append it as one
+  fenced block after any code, so the pipeline can synthesize it before
+  writing timed code:
+
+  ```beats
+  ### Beat: <name>
+  mood: <delivery for this beat, e.g. warm and explanatory>
+  <plain speakable prose, formulas as words>
+  ### Beat: <name>
+  mood: <delivery>
+  <plain speakable prose>
+  ```
+
+- Two to four beats, one per visual idea. The beats block carries the
+  voiceover; the chat prose around it carries the explanation.
 - Each beat is plain speakable prose: no markdown tables, no headings inside
-  the beat, no URLs, no stage directions. Spell formulas as words
-  ("V equals I times R"), never symbols.
+  the beat, no URLs. Spell formulas as words ("V equals I times R"), never
+  symbols. The `mood:` line is direction, never spoken — keep it short.
+- Momentary halts go inline as `<short pause>` where a beat should hold.
 - Keep each beat under ~800 characters so one TTS request stays predictable.
 
 ## Output format

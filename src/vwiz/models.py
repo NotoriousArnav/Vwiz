@@ -68,9 +68,11 @@ class Chat(BaseModel):
     # Audio-first chain state. `script` is the authored beat script
     # (`### Beat: <name>` sections, plain speakable prose); `beats` is the
     # per-beat timing manifest; `srt_path` is the caption file for embedding.
+    # `chain_state` is the last chain outcome for the inspector.
     script: str | None = None
     beats: list[BeatMeta] = Field(default_factory=list)
     srt_path: Path | None = None
+    chain_state: str | None = None
 
     @property
     def preview(self) -> str:
