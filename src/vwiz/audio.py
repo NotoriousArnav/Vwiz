@@ -14,11 +14,20 @@ from __future__ import annotations
 
 import subprocess
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 from vwiz.config import Settings
 
-__all__ = ["AudioError", "synthesize", "probe_duration", "mux_narration"]
+__all__ = [
+    "AudioError",
+    "BeatAudio",
+    "synthesize",
+    "synthesize_beats",
+    "split_beats",
+    "probe_duration",
+    "mux_narration",
+]
 
 
 class AudioError(RuntimeError):
@@ -35,7 +44,9 @@ _TTS_WIDTH = 2
 _MAX_SCRIPT_CHARS = 5_000
 
 
-def synthesize(text: str, chat_id: str, settings: Settings) -> tuple[Path, float]:
+def synthesize(
+    text: str, chat_id: str, settings: Settings, *, name: str = "narration"
+) -> tuple[Path, float]:
     """Synthesize `text` to wav. Returns (wav path, seconds). Raises AudioError."""
     script = text.strip()
     if not script:
@@ -77,7 +88,7 @@ def synthesize(text: str, chat_id: str, settings: Settings) -> tuple[Path, float
     if not chunks:
         raise AudioError("TTS returned no audio — retry, or shorten the script")
 
-    out = settings.renders_dir / chat_id / "narration.wav"
+    out = settings.renders_dir / chat_id / f"{name}.wav"
     out.parent.mkdir(parents=True, exist_ok=True)
     pcm = b"".join(chunks)
     with wave.open(str(out), "wb") as wav:
@@ -88,6 +99,70 @@ def synthesize(text: str, chat_id: str, settings: Settings) -> tuple[Path, float
     with wave.open(str(out), "rb") as wav:
         seconds = wav.getnframes() / wav.getframerate()
     return out, seconds
+
+
+@dataclass
+class BeatAudio:
+    """One narrated segment: its name, wav, exact duration, and start offset."""
+
+    name: str
+    wav: Path
+    seconds: float
+    starts_at: float = 0.0
+
+
+def split_beats(script: str) -> list[tuple[str, str]]:
+    """Split a script on `### Beat: <name>` headings.
+
+    Beat-per-scene timing starts here: each segment is synthesized separately,
+    so its duration is known exactly with no STT. A script without headings
+    is one beat called "full", keeping every existing caller working.
+    """
+    import re
+
+    beats: list[tuple[str, str]] = []
+    current_name = "full"
+    current_lines: list[str] = []
+    seen_heading = False
+    for line in script.split("\n"):
+        heading = re.match(r"^\s*###\s*Beat:\s*(.+?)\s*$", line)
+        if heading:
+            if seen_heading or any(line.strip() for line in current_lines):
+                beats.append((current_name, "\n".join(current_lines).strip()))
+            current_name = re.sub(r"[^A-Za-z0-9 _-]+", "", heading.group(1)).strip() or "beat"
+            current_lines = []
+            seen_heading = True
+        else:
+            current_lines.append(line)
+    tail = "\n".join(current_lines).strip()
+    if tail or not beats:
+        beats.append((current_name, tail))
+    # Drop the pre-first-heading prologue when real beats exist: it is intro
+    # chatter, not narration, and would desync the manifest.
+    if seen_heading and beats and beats[0][0] == "full" and len(beats) > 1:
+        beats.pop(0)
+    return [(name, text) for name, text in beats if text]
+
+
+def synthesize_beats(script: str, chat_id: str, settings: Settings) -> list[BeatAudio]:
+    """Synthesize each beat separately. Returns the timing manifest.
+
+    Durations come from the wav headers — sample-accurate and free. Whisper
+    only becomes necessary for single-blob or user-uploaded audio, where we
+    did not author the boundaries; that is a later phase, not this one.
+    """
+    import re
+
+    manifest: list[BeatAudio] = []
+    offset = 0.0
+    for index, (name, text) in enumerate(split_beats(script)):
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_").lower() or f"beat{index}"
+        wav, seconds = synthesize(text, chat_id, settings, name=f"beat_{slug}")
+        manifest.append(BeatAudio(name=name, wav=wav, seconds=seconds, starts_at=offset))
+        offset += seconds
+    if not manifest:
+        raise AudioError("nothing to narrate — the script is empty")
+    return manifest
 
 
 def probe_duration(path: Path) -> float:
