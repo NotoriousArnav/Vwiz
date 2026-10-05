@@ -172,6 +172,22 @@ def parse_reply(raw: str) -> tuple[str, str | None]:
     return reply_text, code
 
 
+def parse_agent_reply(raw: str) -> tuple[str, str | None]:
+    """Extract (text, code) from an agent turn's plain-text reply.
+
+    The direct path uses `parse_reply` (raw JSON), which tool-calling models
+    emit as phantom function calls — so agent turns use prose plus at most one
+    ```python fence instead. Returns the prose and the fence body, if any.
+    """
+    text = raw.strip()
+    fence = re.search(r"```python\s*(.+?)\s*```", text, re.DOTALL)
+    if not fence:
+        return text, None
+    code = fence.group(1).strip()
+    prose = (text[: fence.start()] + text[fence.end() :]).strip()
+    return prose or "(code only — see the Code pane)", code or None
+
+
 def document_context(
     messages: Iterable[Message],
     settings: Settings,
