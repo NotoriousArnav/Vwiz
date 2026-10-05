@@ -148,7 +148,7 @@ def _synthesize_interactions(script: str, out: Path, settings: Settings, *, styl
 
     from google import genai
 
-    client = genai.Client(api_key=settings.google_api_key)
+    client = genai.Client(api_key=settings.google_api_key, http_options={"timeout": 120_000})
     annotation: dict = {"type": "speech_metadata"}
     if style.strip():
         annotation["style"] = style.strip()[:500]
@@ -178,7 +178,7 @@ def _synthesize_legacy(script: str, out: Path, settings: Settings) -> None:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=settings.google_api_key)
+    client = genai.Client(api_key=settings.google_api_key, http_options={"timeout": 120_000})
     config = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(
@@ -592,7 +592,7 @@ def _whisper_words(wav: Path, settings: Settings) -> list[tuple[str, float, floa
     """One Groq transcription; returns beat-relative (word, start, end)."""
     from groq import Groq
 
-    client = Groq(api_key=settings.groq_api_key)
+    client = Groq(api_key=settings.groq_api_key, timeout=60.0, max_retries=1)
     with open(wav, "rb") as handle:
         result = client.audio.transcriptions.create(
             file=(Path(wav).name, handle.read()),

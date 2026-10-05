@@ -359,7 +359,19 @@ def generate_beat_code(
         SystemMessage(content=system_prompt().split("## Output format")[0].rstrip()),
         HumanMessage(content=prompt),
     ]
-    raw = chunk_text(active.invoke(messages))
+    # Bound the call: a hung provider must fail the beat, never the chain.
+    import concurrent.futures as _futures
+
+    print(
+        f"[vwiz] codegen: beat {beat_name!r} requesting ({beat_seconds:.1f}s budget)…", flush=True
+    )
+    with _futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(active.invoke, messages)
+        try:
+            reply = future.result(timeout=150)
+        except _futures.TimeoutError as exc:
+            raise RuntimeError(f"codegen timed out after 150s for beat {beat_name!r}") from exc
+    raw = chunk_text(reply)
     if not raw or not raw.strip():
         raise RuntimeError(f"empty codegen reply for beat {beat_name!r}")
     fence = re.search(r"```python\s*(.+?)\s*```", raw.strip(), re.DOTALL)

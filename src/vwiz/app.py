@@ -395,7 +395,7 @@ def _run_chain_stage(
 
     chat.script = script
     try:
-        with st.spinner("Synthesizing narration per beat…"):
+        with st.spinner("Audio-first chain: TTS → timestamps → timed code (watch terminal)…"):
             result = chain_mod.run_chain(script, chat.id, settings)
     except Exception as exc:
         # Script is kept; audio/code did not land. Fall back to the agent's
