@@ -74,8 +74,7 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
             failed.append(f"{beat.name}: {exc}")
             continue
         print(
-            f"[vwiz] chain: codegen beat {beat.name!r} -> {name} "
-            f"({time.monotonic() - bt:.1f}s)",
+            f"[vwiz] chain: codegen beat {beat.name!r} -> {name} ({time.monotonic() - bt:.1f}s)",
             flush=True,
         )
         scene_names.append(name)

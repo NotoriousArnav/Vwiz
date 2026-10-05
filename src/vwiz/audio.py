@@ -581,8 +581,7 @@ def transcribe_beats(beats: list[BeatAudio], settings: Settings) -> list[str]:
         if gaps:
             beat.pauses = gaps
         print(
-            f"[vwiz] whisper: beat {beat.name!r} done: {len(words)} words, "
-            f"{len(gaps)} pause(s)",
+            f"[vwiz] whisper: beat {beat.name!r} done: {len(words)} words, {len(gaps)} pause(s)",
             flush=True,
         )
         sources.append("whisper")
