@@ -42,13 +42,23 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
     timestamps (halts and nuances) → RMS envelope fallback when Whisper fails.
     Codegen sees the word timeline so holds land on real speech pauses.
     """
+    import time
+
+    t0 = time.monotonic()
     beats = audio_mod.synthesize_beats(script, chat_id, settings)
+    print(
+        f"[vwiz] chain: {len(beats)} beat(s) synthesized "
+        f"({', '.join(f'{b.name} {b.seconds:.1f}s' for b in beats)})",
+        flush=True,
+    )
     timing_sources = audio_mod.transcribe_beats(beats, settings)
+    print(f"[vwiz] chain: timestamps done ({', '.join(timing_sources)})", flush=True)
 
     codes: list[str] = []
     scene_names: list[str] = []
     failed: list[str] = []
     for index, beat in enumerate(beats):
+        bt = time.monotonic()
         try:
             name, code = llm.generate_beat_code(
                 beat_name=beat.name,
@@ -60,8 +70,14 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
                 words=list(beat.words or []),
             )
         except Exception as exc:  # noqa: BLE001 - one bad beat skips, rest ship
+            print(f"[vwiz] chain: codegen beat {beat.name!r} FAILED ({exc})", flush=True)
             failed.append(f"{beat.name}: {exc}")
             continue
+        print(
+            f"[vwiz] chain: codegen beat {beat.name!r} -> {name} "
+            f"({time.monotonic() - bt:.1f}s)",
+            flush=True,
+        )
         scene_names.append(name)
         codes.append(code)
 
@@ -71,6 +87,11 @@ def run_chain(script: str, chat_id: str, settings: Settings) -> ChainResult:
 
     combined = llm.combine_beat_codes(codes)
     srt_path = audio_mod.write_srt(beats, chat_id, settings)
+    print(
+        f"[vwiz] chain done: {len(codes)} scene(s), captions at {srt_path} "
+        f"(total {time.monotonic() - t0:.1f}s)",
+        flush=True,
+    )
     return ChainResult(
         beats=beats,
         srt_path=srt_path,

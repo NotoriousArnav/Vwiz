@@ -349,9 +349,13 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
         )
         text, code, tool_names, script, notice = _agent_or_direct(chat, settings)
         if notice:
+            print(f"[vwiz] turn: {notice}", flush=True)
             text = f"{text}\n\n⚠️ {notice}"
+        else:
+            print("[vwiz] turn: agent path ok", flush=True)
 
         if script:
+            print("[vwiz] turn: beat script found — starting chain", flush=True)
             text = _run_chain_stage(chat, settings, script, text, code)
         elif code is not None:
             # No beats (ordinary chat): single-scene path. The missing script
@@ -747,6 +751,7 @@ def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
         st.session_state["render_error"] = str(exc)[:2000]
         st.rerun()
         return
+    print(f"[vwiz] render: {len(rendered)} segment(s) rendered, fitting to beats", flush=True)
 
     # Map scenes back to beats in file order; scene i <-> beat i.
     workdir = settings.renders_dir / chat.id
@@ -824,6 +829,7 @@ def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
 
     chat.video_path = out
     store.save(chat, settings)
+    print(f"[vwiz] render: shipped {out} ({out.stat().st_size} bytes)", flush=True)
     if problems:
         st.session_state["render_error"] = (
             f"Shipped with {len(fitted)}/{len(chat.beats)} beats ({'; '.join(problems)})"

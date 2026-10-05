@@ -108,10 +108,20 @@ def synthesize(
     out = settings.renders_dir / chat_id / f"{name}.wav"
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    import time
+
+    t0 = time.monotonic()
+    style_tag = f" style={style!r}" if style.strip() else ""
+    print(f"[vwiz] tts: beat {name!r}{style_tag} synthesizing…", flush=True)
     try:
         _synthesize_interactions(script, out, settings, style=style)
+        print(
+            f"[vwiz] tts: beat {name!r} via interactions ({time.monotonic() - t0:.1f}s)",
+            flush=True,
+        )
     except Exception as exc:
         # Interactions is new surface; the legacy stream is the flat fallback.
+        print(f"[vwiz] tts: beat {name!r} interactions failed ({exc}) — legacy fallback", flush=True)
         try:
             _synthesize_legacy(script, out, settings)
         except Exception as legacy_exc:
@@ -122,6 +132,7 @@ def synthesize(
         seconds = wav.getnframes() / wav.getframerate()
     if seconds <= 0:
         raise AudioError("TTS returned zero-length audio")
+    print(f"[vwiz] tts: beat {name!r} done: {seconds:.1f}s wav ({out.stat().st_size} bytes)", flush=True)
     return out, seconds
 
 
@@ -542,14 +553,18 @@ def transcribe_beats(beats: list[BeatAudio], settings: Settings) -> list[str]:
     """
     sources: list[str] = []
     if not settings.groq_api_key:
+        print("[vwiz] whisper: no GROQ_API_KEY — all beats use rms fallback", flush=True)
         return ["rms"] * len(beats)
     for beat in beats:
+        print(f"[vwiz] whisper: beat {beat.name!r} transcribing…", flush=True)
         try:
             words = _whisper_words(beat.wav, settings)
-        except Exception:
+        except Exception as exc:
+            print(f"[vwiz] whisper: beat {beat.name!r} failed ({exc}) — rms fallback", flush=True)
             sources.append("rms")
             continue
         if not words:
+            print(f"[vwiz] whisper: beat {beat.name!r} empty — rms fallback", flush=True)
             sources.append("rms")
             continue
         beat.words = words
@@ -559,6 +574,11 @@ def transcribe_beats(beats: list[BeatAudio], settings: Settings) -> list[str]:
                 gaps.append((round(prev_end, 2), round(next_start, 2)))
         if gaps:
             beat.pauses = gaps
+        print(
+            f"[vwiz] whisper: beat {beat.name!r} done: {len(words)} words, "
+            f"{len(gaps)} pause(s)",
+            flush=True,
+        )
         sources.append("whisper")
     return sources
 

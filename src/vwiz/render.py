@@ -157,6 +157,11 @@ def render_beats(
     scenes = find_scenes(code)
 
     render_id = uuid.uuid4().hex[:8]
+    print(
+        f"[vwiz] render: starting docker run for {len(scenes)} scene(s) "
+        f"({', '.join(scenes)}), quality {quality}",
+        flush=True,
+    )
     workdir = settings.renders_dir / chat_id / f"{tag}_{render_id}"
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "scene.py").write_text(code, encoding="utf-8")
@@ -221,4 +226,5 @@ def render_beats(
             final.unlink(missing_ok=True)
             raise RenderError(f"{scene!r} exceeded the size cap and was discarded")
         out.append((scene, final))
+    print(f"[vwiz] render: {len(out)} scene(s) done ({', '.join(n for n, _ in out)})", flush=True)
     return out
