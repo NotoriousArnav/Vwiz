@@ -15,6 +15,9 @@ wheels/
 # Runtime data: uploads, renders, finished videos
 data/
 
+# Probe scratch tree (agent backend root, rebuilt every run)
+.vwiz-probe/
+
 # Tooling caches
 .ruff_cache/
 .pytest_cache/

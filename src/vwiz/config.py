@@ -23,10 +23,11 @@ class Settings(BaseSettings):
     )
 
     # --- Providers ----------------------------------------------------------
+    # Gemini Developer API (AI Studio key). Vertex is never selected: it would
+    # require `project`/`vertexai=True`, neither of which we set.
     google_api_key: str | None = Field(default=None, repr=False)
-    google_cloud_project: str | None = None
-    google_application_credentials: Path | None = None
     tavily_api_key: str | None = Field(default=None, repr=False)
+    exa_api_key: str | None = Field(default=None, repr=False)
     # Groq is the fallback provider, used when the Gemini daily quota is hit.
     # Optional: with no key set, the fallback chain just skips it.
     groq_api_key: str | None = Field(default=None, repr=False)
@@ -43,8 +44,13 @@ class Settings(BaseSettings):
     gemini_fallback_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
 
-    # --- Voiceover (Chirp 3 HD) --------------------------------------------
-    tts_voice: str = "en-US-Chirp3-HD-Kore"
+    # --- Voiceover (Gemini TTS via the google-genai SDK) --------------------
+    # Not Cloud TTS: no project, no service account, no ADC. The AI Studio key
+    # serves text, TTS, and embeddings alike.
+    # "Koda" is absent from the published voice catalogue but confirmed live
+    # against the API (HTTP 200, 24kHz mono PCM).
+    tts_model: str = "gemini-3.8-flash-tts"
+    tts_voice: str = "Koda"
     tts_language: str = "en-US"
     tts_speaking_rate: float = Field(default=1.0, ge=0.25, le=2.0)
 
@@ -114,8 +120,6 @@ class Settings(BaseSettings):
         missing = []
         if not self.google_api_key:
             missing.append("GOOGLE_API_KEY")
-        if not self.google_cloud_project:
-            missing.append("GOOGLE_CLOUD_PROJECT")
         return missing
 
 

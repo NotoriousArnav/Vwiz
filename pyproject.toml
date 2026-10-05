@@ -17,11 +17,12 @@ dependencies = [
     "langchain-core>=1.6.6",
     "langchain-google-genai>=4.4.0",
     "google-genai>=2.28.0",
-    # Voiceover
-    "google-cloud-texttospeech>=2.38.0",
-    # MCP — mcp must stay <2.0; langchain-mcp-adapters has not widened its cap yet.
-    "mcp>=1.24.0,<2.0.0",
-    "langchain-mcp-adapters>=0.3.2",
+    "deepagents>=0.7.22",
+    # MCP via langchain[mcp] (MCPAdapter + fastmcp). This replaces
+    # langchain-mcp-adapters, which capped mcp<2.0 and conflicted with it.
+    # Nothing in src/ imported the old adapter.
+    "langchain[mcp]>=1.4.3",
+    # Voiceover is Gemini TTS via the google-genai SDK, not Cloud TTS.
     # Vector store
     "qdrant-client>=1.19.1",
     "langchain-qdrant>=1.1.0",
@@ -45,6 +46,7 @@ dev = [
 
 [project.scripts]
 vwiz = "vwiz.cli:main"
+vwiz-probe = "vwiz.probe.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.20,<0.13.0"]

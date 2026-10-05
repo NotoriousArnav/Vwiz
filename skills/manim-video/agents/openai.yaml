@@ -1,0 +1,7 @@
+interface:
+  display_name: "Manim Video Lab"
+  short_description: "Docker-ready Manim explainer video production"
+  default_prompt: "Use $manim-video to plan, code, and render a polished Manim explainer video with Docker."
+
+policy:
+  allow_implicit_invocation: true
