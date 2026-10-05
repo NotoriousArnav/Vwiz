@@ -24,8 +24,6 @@ dependencies = [
     "langchain[mcp]>=1.4.3",
     # Voiceover is Gemini TTS via the google-genai SDK, not Cloud TTS.
     # Vector store
-    "qdrant-client>=1.19.1",
-    "langchain-qdrant>=1.1.0",
     # Document ingest — see src/vwiz/ingest.py for the per-format extractors
     "pdfplumber>=0.11.10",
     "langchain-text-splitters>=1.1.3",

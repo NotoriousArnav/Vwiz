@@ -54,10 +54,6 @@ class Settings(BaseSettings):
     tts_language: str = "en-US"
     tts_speaking_rate: float = Field(default=1.0, ge=0.25, le=2.0)
 
-    # --- Vector store (memory MCP) -----------------------------------------
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: str | None = Field(default=None, repr=False)
-
     # --- Render node --------------------------------------------------------
     render_node_url: str = "http://localhost:8000"
     render_node_token: str | None = Field(default=None, repr=False)
