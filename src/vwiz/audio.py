@@ -25,6 +25,13 @@ __all__ = [
     "synthesize",
     "synthesize_beats",
     "split_beats",
+    "detect_pauses",
+    "build_srt",
+    "write_srt",
+    "concat_beat_audio",
+    "fit_segment",
+    "concat_videos",
+    "mux_final",
     "probe_duration",
     "mux_narration",
 ]
@@ -109,6 +116,14 @@ class BeatAudio:
     wav: Path
     seconds: float
     starts_at: float = 0.0
+    # Plain speakable text, kept for SRT captions.
+    text: str = ""
+    # Intra-beat silences, (start, end) seconds relative to this beat.
+    pauses: list[tuple[float, float]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.pauses is None:
+            self.pauses = []
 
 
 def split_beats(script: str) -> list[tuple[str, str]]:
@@ -158,11 +173,239 @@ def synthesize_beats(script: str, chat_id: str, settings: Settings) -> list[Beat
     for index, (name, text) in enumerate(split_beats(script)):
         slug = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_").lower() or f"beat{index}"
         wav, seconds = synthesize(text, chat_id, settings, name=f"beat_{slug}")
-        manifest.append(BeatAudio(name=name, wav=wav, seconds=seconds, starts_at=offset))
+        pauses = detect_pauses(wav)
+        manifest.append(
+            BeatAudio(
+                name=name, wav=wav, seconds=seconds, starts_at=offset, text=text, pauses=pauses
+            )
+        )
         offset += seconds
     if not manifest:
         raise AudioError("nothing to narrate — the script is empty")
     return manifest
+
+
+def detect_pauses(
+    wav_path: Path, *, min_silence_s: float = 0.30, threshold: float = 0.012
+) -> list[tuple[float, float]]:
+    """Intra-beat silences from the wav, for animation timing hints.
+
+    RMS envelope over 20 ms windows; runs below `threshold` longer than
+    `min_silence_s` are pauses. Reads the 24 kHz mono PCM we synthesize —
+    no STT, no new dependency. Returns [(start, end)] in beat-relative seconds.
+    """
+    import array
+
+    try:
+        with wave.open(str(wav_path), "rb") as wav:
+            n = wav.getnframes()
+            raw = wav.readframes(n)
+            width = wav.getsampwidth()
+    except (OSError, wave.Error) as exc:
+        raise AudioError(f"could not read {Path(wav_path).name} for pauses ({exc})") from exc
+    if width != _TTS_WIDTH or not raw:
+        return []
+    frames = array.array("h", raw)
+    # TTS writes little-endian; swap on big-endian hosts.
+    import sys
+
+    if sys.byteorder == "big":
+        frames.byteswap()
+    win = max(1, int(_TTS_RATE * 0.020))
+    env: list[float] = []
+    for i in range(0, len(frames) - win + 1, win):
+        acc = 0
+        for v in frames[i : i + win]:
+            acc += v * v
+        env.append((acc / win) ** 0.5 / 32768.0)
+    pauses: list[tuple[float, float]] = []
+    start: int | None = None
+    for idx, amp in enumerate(env):
+        if amp < threshold:
+            if start is None:
+                start = idx
+        elif start is not None:
+            a, b = start * 0.020, idx * 0.020
+            if b - a >= min_silence_s:
+                pauses.append((round(a, 2), round(b, 2)))
+            start = None
+    if start is not None:
+        a, b = start * 0.020, len(env) * 0.020
+        if b - a >= min_silence_s:
+            pauses.append((round(a, 2), round(b, 2)))
+    return pauses
+
+
+def _srt_time(t: float) -> str:
+    ms = int(round(max(0.0, t) * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def build_srt(beats: list[BeatAudio]) -> str:
+    """One cue per beat: manifest offsets plus the speakable text."""
+    out: list[str] = []
+    for i, beat in enumerate(beats, 1):
+        body = " ".join((beat.text or "").split())
+        if not body or beat.seconds <= 0:
+            continue
+        start = beat.starts_at
+        end = beat.starts_at + beat.seconds
+        if end <= start:
+            continue
+        out.append(f"{i}\n{_srt_time(start)} --> {_srt_time(end)}\n{body}\n")
+    return "\n".join(out)
+
+
+def write_srt(beats: list[BeatAudio], chat_id: str, settings: Settings) -> Path:
+    """Write the caption file next to the beat wavs. Returns its path."""
+    out = settings.renders_dir / chat_id / "captions.srt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(build_srt(beats), encoding="utf-8")
+    return out
+
+
+def concat_beat_audio(beats: list[BeatAudio], out: Path, settings: Settings) -> Path:
+    """Join beat wavs into one track. Returns `out`. Raises AudioError."""
+    if not beats:
+        raise AudioError("no beats to join")
+    inputs: list[str] = []
+    for beat in beats:
+        inputs += ["-i", str(beat.wav)]
+    n = len(beats)
+    chain = "".join(f"[{i}:a]" for i in range(n))
+    cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", f"{chain}concat=n={n}:v=0:a=1[a]"] + [
+        "-map",
+        "[a]",
+        "-c:a",
+        "pcm_s16le",
+        str(out),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=settings.render_timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError("audio concat timed out") from exc
+    except OSError as exc:
+        raise AudioError(f"could not start ffmpeg ({exc})") from exc
+    if proc.returncode != 0:
+        raise AudioError(f"audio concat failed:\n{(proc.stderr or '')[-1200:]}")
+    return out
+
+
+def fit_segment(video: Path, beat_seconds: float, out: Path, settings: Settings) -> Path:
+    """Fit one beat segment to its narration with setpts. Returns `out`."""
+    vdur = probe_duration(video)
+    if vdur <= 0 or beat_seconds <= 0:
+        raise AudioError("zero-length segment — nothing to fit")
+    factor = beat_seconds / vdur
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video),
+        "-filter_complex",
+        f"[0:v]setpts=PTS*{factor:.6f}[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        str(out),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=settings.render_timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError("segment fit timed out") from exc
+    except OSError as exc:
+        raise AudioError(f"could not start ffmpeg ({exc})") from exc
+    if proc.returncode != 0:
+        raise AudioError(f"segment fit failed:\n{(proc.stderr or '')[-1200:]}")
+    return out
+
+
+def concat_videos(parts: list[Path], out: Path, settings: Settings) -> Path:
+    """Join fitted beat segments with the concat demuxer (stream copy)."""
+    import tempfile
+
+    if not parts:
+        raise AudioError("no segments to join")
+    if len(parts) == 1:
+        import shutil
+
+        shutil.copyfile(parts[0], out)
+        return out
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+        for part in parts:
+            # Single quotes escaped for the concat file format.
+            safe = str(part.resolve()).replace("'", "'\\''")
+            handle.write(f"file '{safe}'\n")
+        list_path = handle.name
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", str(out)],
+            capture_output=True,
+            text=True,
+            timeout=settings.render_timeout_s,
+        )
+    finally:
+        Path(list_path).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise AudioError(f"video concat failed:\n{(proc.stderr or '')[-1200:]}")
+    return out
+
+
+def mux_final(
+    video: Path,
+    audio_wav: Path,
+    out: Path,
+    settings: Settings,
+    *,
+    srt_path: Path | None = None,
+) -> Path:
+    """Mux joined video + joined audio, embedding SRT as mov_text captions."""
+    cmd = ["ffmpeg", "-y", "-i", str(video), "-i", str(audio_wav)]
+    if srt_path is not None and Path(srt_path).is_file():
+        cmd += ["-i", str(srt_path)]
+        cmd += [
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-map",
+            "2",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-c:s",
+            "mov_text",
+        ]
+    else:
+        cmd += ["-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac"]
+    # Cap to the shorter stream so a rounding wobble cannot tail silence.
+    cmd += ["-shortest", str(out)]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=settings.render_timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError(f"final mux timed out after {settings.render_timeout_s}s") from exc
+    except OSError as exc:
+        raise AudioError(f"could not start ffmpeg ({exc})") from exc
+    if proc.returncode != 0:
+        raise AudioError(
+            f"final mux failed (exit {proc.returncode}):\n{(proc.stderr or '')[-1500:]}"
+        )
+    return out
 
 
 def probe_duration(path: Path) -> float:

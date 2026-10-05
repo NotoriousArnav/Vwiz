@@ -38,6 +38,17 @@ class Message(BaseModel):
     attachments: list[Path] = Field(default_factory=list)
 
 
+class BeatMeta(BaseModel):
+    """One narrated segment: timing manifest entry persisted with the chat."""
+
+    name: str
+    wav: Path
+    seconds: float
+    starts_at: float = 0.0
+    # Intra-beat silences as (start, end) seconds relative to the beat wav.
+    pauses: list[tuple[float, float]] = Field(default_factory=list)
+
+
 class Chat(BaseModel):
     """A conversation and the artefact it is producing."""
 
@@ -53,6 +64,13 @@ class Chat(BaseModel):
     code: str | None = None
     code_filename: str | None = None
     video_path: Path | None = None
+
+    # Audio-first chain state. `script` is the authored beat script
+    # (`### Beat: <name>` sections, plain speakable prose); `beats` is the
+    # per-beat timing manifest; `srt_path` is the caption file for embedding.
+    script: str | None = None
+    beats: list[BeatMeta] = Field(default_factory=list)
+    srt_path: Path | None = None
 
     @property
     def preview(self) -> str:

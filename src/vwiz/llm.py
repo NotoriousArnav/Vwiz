@@ -112,6 +112,20 @@ block at the end:
 ```
 
 For an ordinary conversational reply there is no fence.
+
+When the user asked for a visualization, also append the narration script as
+a second fenced block after any code fence, so the pipeline can synthesize it
+before writing timed code:
+
+```beats
+### Beat: <name>
+<plain speakable prose, formulas as words>
+### Beat: <name>
+<plain speakable prose>
+```
+
+Two to four beats. The beats block carries the voiceover; the chat prose
+around it carries the explanation. Never emit raw JSON, fenced or otherwise.
 """
 
 
@@ -257,6 +271,138 @@ def parse_agent_reply(raw: str) -> tuple[str, str | None]:
     code = fence.group(1).strip()
     prose = (text[: fence.start()] + text[fence.end() :]).strip()
     return prose or "(code only — see the Code pane)", code or None
+
+
+def extract_beat_script(raw: str) -> str | None:
+    """Pull the ```beats script out of an agent reply, if present.
+
+    The fenced block wins (explicit contract). Without it, fall back to
+    headings in the raw prose — older or direct-path replies may carry beats
+    without the fence. Returns None when no beat headings exist.
+    """
+    fence = re.search(r"```beats\s*(.+?)\s*```", raw.strip(), re.DOTALL)
+    candidate = fence.group(1).strip() if fence else raw
+    if "### Beat:" not in candidate:
+        return None
+    # Keep from the first heading onward; prose before it is explanation.
+    idx = candidate.find("### Beat:")
+    script = candidate[idx:].strip()
+    return script or None
+
+
+def _beat_class_name(beat_name: str, index: int) -> str:
+    """Valid unique Scene name from a beat name: PascalCase + index."""
+    parts = re.split(r"[^A-Za-z0-9]+", beat_name.strip())
+    stem = "".join(p[:1].upper() + p[1:] for p in parts if p) or "Beat"
+    if stem[0].isdigit():
+        stem = f"Beat{stem}"
+    return f"{stem}{index}"
+
+
+def build_beat_prompt(
+    *,
+    beat_name: str,
+    beat_text: str,
+    beat_seconds: float,
+    pauses: list[tuple[float, float]],
+    scene_name: str,
+) -> str:
+    """One small codegen prompt: beat transcript plus an exact duration budget."""
+    pause_lines = (
+        "\n".join(f"- pause {a:.2f}s–{b:.2f}s (hold the frame, e.g. wait())" for a, b in pauses)
+        or "- no detected pauses; pace evenly"
+    )
+    return (
+        "You write one self-contained Manim Community v0.21 Scene class, runnable as written. "
+        "No placeholders, no invented helpers, no asset files.\n\n"
+        f"Scene class name: {scene_name} (exact).\n"
+        "Narration for this beat (plain speech, timed separately — "
+        "do not render its text verbatim unless a short label helps):\n"
+        f"{beat_text.strip()}\n\n"
+        f"Exact duration budget: {beat_seconds:.2f}s. "
+        "Budget every animation with explicit run_time "
+        "plus wait() calls so construct() fills the budget within ±0.5s; "
+        "never exceed it by more than 1s. "
+        "Manim plays each animation for its run_time, so sum run_times + waits to the budget.\n"
+        f"Detected speech pauses inside the beat (beat-relative seconds):\n{pause_lines}\n"
+        "Align holds and transitions to those pauses where natural.\n\n"
+        "Target Manim Community v0.21 exactly; verify any unfamiliar API before using it. "
+        "Return only one ```python fenced block with the scene, no prose."
+    )
+
+
+def generate_beat_code(
+    *,
+    beat_name: str,
+    beat_text: str,
+    beat_seconds: float,
+    pauses: list[tuple[float, float]],
+    settings: Settings,
+    index: int = 0,
+) -> tuple[str, str]:
+    """Generate one beat's Scene via the active provider. Returns (scene_name, code)."""
+    scene_name = _beat_class_name(beat_name, index)
+    prompt = build_beat_prompt(
+        beat_name=beat_name,
+        beat_text=beat_text,
+        beat_seconds=beat_seconds,
+        pauses=pauses,
+        scene_name=scene_name,
+    )
+    active = get_active_llm(settings, temperature=0.4)
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    messages = [
+        SystemMessage(content=system_prompt().split("## Output format")[0].rstrip()),
+        HumanMessage(content=prompt),
+    ]
+    raw = chunk_text(active.invoke(messages))
+    if not raw or not raw.strip():
+        raise RuntimeError(f"empty codegen reply for beat {beat_name!r}")
+    fence = re.search(r"```python\s*(.+?)\s*```", raw.strip(), re.DOTALL)
+    code = fence.group(1).strip() if fence else raw.strip()
+    if f"class {scene_name}" not in code:
+        # Rename the single Scene class to the required name so the
+        # multi-scene render finds beats in order.
+        renamed, count = re.subn(
+            r"class\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?:manim\s*\.\s*)?Scene\s*\)",
+            f"class {scene_name}(Scene)",
+            code,
+            count=1,
+        )
+        code = renamed if count else code
+    import ast as _ast
+
+    _ast.parse(code)  # syntax check before it reaches the Code pane
+    return scene_name, code
+
+
+def combine_beat_codes(codes: list[str]) -> str:
+    """Merge per-beat files into one multi-scene module.
+
+    Imports from every beat are hoisted once (deduped by line); Scene class
+    bodies are kept in order. Non-import, non-class top-level statements are
+    dropped — beats must be self-contained scenes, not scripts.
+    """
+    import ast as _ast
+
+    seen_imports: list[str] = []
+    seen: set[str] = set()
+    bodies: list[str] = []
+    for code in codes:
+        tree = _ast.parse(code)
+        lines = code.splitlines()
+        for node in tree.body:
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                snippet = "\n".join(lines[node.lineno - 1 : node.end_lineno or node.lineno])
+                if snippet not in seen:
+                    seen.add(snippet)
+                    seen_imports.append(snippet)
+            elif isinstance(node, _ast.ClassDef):
+                snippet = "\n".join(lines[node.lineno - 1 : node.end_lineno or node.lineno])
+                bodies.append(snippet)
+    header = "\n".join(seen_imports) or "from manim import *"
+    return header + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
 
 
 def document_context(

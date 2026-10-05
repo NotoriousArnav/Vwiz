@@ -39,6 +39,8 @@ class TurnResult:
     code: str | None = None
     tool_names: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # Authored narration script (```beats block), if the turn asked for video.
+    script: str | None = None
 
 
 def model_string(settings: Settings) -> str:
@@ -146,4 +148,5 @@ async def run_agent_turn(chat, settings: Settings) -> TurnResult:
                 break
 
     text, code = llm.parse_agent_reply(raw) if raw else ("(empty reply from agent)", None)
-    return TurnResult(text=text, code=code, tool_names=fired, notes=notes)
+    script = llm.extract_beat_script(raw) if raw else None
+    return TurnResult(text=text, code=code, tool_names=fired, notes=notes, script=script)

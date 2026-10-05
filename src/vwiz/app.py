@@ -306,6 +306,9 @@ def _render_transcript(chat: Chat, settings) -> None:
             if message.attachments:
                 _render_attachments(message.attachments)
 
+    if chat.beats:
+        _render_beat_script(chat)
+
     # A pending LLM reply is produced here, inside the transcript container, so
     # autoscroll follows the stream. It lives here rather than in _handle_submit
     # because the transcript is drawn before the composer renders the turn.
@@ -313,21 +316,28 @@ def _render_transcript(chat: Chat, settings) -> None:
         _stream_agent_reply(chat, settings)
 
 
+def _render_beat_script(chat: Chat) -> None:
+    """Collapsible beat script with measured timings, on the transcript."""
+    total = chat.beats[-1].starts_at + chat.beats[-1].seconds if chat.beats else 0.0
+    with st.expander(f"🎙 Beat script — {len(chat.beats)} beat(s), {total:.1f}s", expanded=False):
+        for beat in chat.beats:
+            st.markdown(
+                f"**{beat.name}** — {beat.starts_at:.1f}s → {beat.starts_at + beat.seconds:.1f}s"
+            )
+            if beat.pauses:
+                holds = ", ".join(f"{a:.1f}–{b:.1f}s" for a, b in beat.pauses)
+                st.caption(f"holds: {holds}")
+        if chat.script:
+            st.code(chat.script, language="markdown")
+
+
 def _stream_agent_reply(chat: Chat, settings) -> None:
-    """Generate the reply, preferably via the MCP + skill agent, then persist it.
+    """Generate the reply, then run the audio-first chain when beats exist.
 
-    The agent turn (web research tools, manim-video skill, staged documents)
-    runs first with a bounded wait. Any failure — quota, tier token ceiling,
-    MCP down, Ollama asleep — falls back to the direct single-model reply, so
-    the app never gets worse than it was before the agent existed. Tool calls
-    render in an expander above the reply; the `text` becomes the stored
-    assistant message and a valid Manim scene in `code` reaches the Code pane
-    after the same syntax check as the direct path.
-
-    Title generation runs in a background thread launched *before* the reply
-    starts, so its API latency overlaps instead of adding. The title only
-    depends on the first user message, so there is no data dependency on the
-    reply.
+    The agent turn (research + beat script) runs first. When it carries a
+    ```beats script, stages 2–4 run automatically: per-beat TTS, silence
+    timestamps, one timed Scene per beat. The combined multi-scene module
+    lands in the Code pane; rendering stays behind Preview/Final.
     """
     need_title = chat.title == "New chat"
     first_user = _first_user_text(chat) if need_title else ""
@@ -337,11 +347,12 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
             if need_title and first_user
             else None
         )
-        text, code, tool_names = _agent_or_direct(chat, settings)
+        text, code, tool_names, script = _agent_or_direct(chat, settings)
 
-        if code is not None:
-            # Phase 2 guarantee: nothing broken enters the Code pane. A failed
-            # parse leaves the last good scene in place and tells the user why.
+        if script:
+            text = _run_chain_stage(chat, settings, script, text, code)
+        elif code is not None:
+            # No beats (ordinary chat): single-scene path.
             try:
                 ast.parse(code)
                 chat.code = code
@@ -365,12 +376,60 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
     st.rerun()
 
 
-def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str]]:
+def _run_chain_stage(
+    chat: Chat, settings, script: str, text: str, fallback_code: str | None
+) -> str:
+    """Stages 2–4: TTS beats, timestamps, timed code. Returns display text."""
+    from vwiz import chain as chain_mod
+    from vwiz.models import BeatMeta
+
+    chat.script = script
+    try:
+        with st.spinner("Synthesizing narration per beat…"):
+            result = chain_mod.run_chain(script, chat.id, settings)
+    except Exception as exc:
+        # Script is kept; audio/code did not land. Fall back to the agent's
+        # code if it sent any, so the turn is not a total loss.
+        if fallback_code is not None:
+            try:
+                ast.parse(fallback_code)
+                chat.code = fallback_code
+                chat.code_filename = "scene.py"
+            except SyntaxError:
+                pass
+        return f"{text}\n\n⚠️ Timed codegen failed ({exc}); script kept, no audio yet."
+
+    chat.beats = [
+        BeatMeta(
+            name=b.name, wav=b.wav, seconds=b.seconds, starts_at=b.starts_at, pauses=b.pauses or []
+        )
+        for b in result.beats
+    ]
+    chat.srt_path = result.srt_path
+    try:
+        ast.parse(result.code)
+        chat.code = result.code
+        chat.code_filename = "scene.py"
+    except SyntaxError as exc:
+        return f"{text}\n\n⚠️ Timed code failed a syntax check and was not saved: {exc}"
+    total = result.beats[-1].starts_at + result.beats[-1].seconds if result.beats else 0.0
+    lines = [
+        f"{text}",
+        "",
+        f"🎙 {len(result.beats)} beat(s), {total:.1f}s narrated, "
+        f"{len(result.scene_names)} scene(s) timed to it.",
+    ]
+    if result.failed:
+        lines.append(f"⚠️ Skipped {len(result.failed)} beat(s): {'; '.join(result.failed)}")
+    return "\n".join(lines)
+
+
+def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str], str | None]:
     """One reply via the agent, falling back to the direct model on any failure.
 
-    Returns (text, code, tool_names). The fallback keeps the app usable through
-    quota exhaustion, tier token ceilings, MCP outages, or a sleeping Ollama —
-    the agent is an upgrade, never a dependency.
+    Returns (text, code, tool_names, script). The fallback keeps the app usable
+    through quota exhaustion, tier token ceilings, MCP outages, or a sleeping
+    Ollama — the agent is an upgrade, never a dependency.
     """
     import asyncio
 
@@ -379,15 +438,15 @@ def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str]]:
     try:
         with st.spinner("Agent working — researching, reading skill, drafting…"):
             result = asyncio.run(asyncio.wait_for(run_agent_turn(chat, settings), 240))
-        return result.text, result.code, result.tool_names
+        return result.text, result.code, result.tool_names, result.script
     except Exception:
         pass
     try:
         raw = "".join(llm.stream_reply(chat.messages, settings, documents=chat.documents))
     except Exception as exc:
-        return f"⚠️ Could not reach the model: {exc}", None, []
+        return f"⚠️ Could not reach the model: {exc}", None, [], None
     text, code = llm.parse_reply(raw)
-    return text, code, []
+    return text, code, [], llm.extract_beat_script(raw)
 
 
 def _first_user_text(chat: Chat) -> str:
@@ -577,9 +636,7 @@ def _render_inspector(chat: Chat, settings) -> None:
         with st.container(border=True, height=_CANVAS_HEIGHT):
             _render_preview(chat, settings)
         _render_actions(chat, settings)
-
-        st.markdown("**Narration**")
-        _render_narration(chat, settings)
+        _render_captions(chat)
 
         st.divider()
 
@@ -634,63 +691,144 @@ def _render_actions(chat: Chat, settings) -> None:
 
 
 def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
-    """Render, narrate, and mux in one pass; the canvas gets the final mp4.
+    """Render the timed scenes, fit each to its beat, mux audio + captions.
 
-    A non-empty script is synthesized and the video is fitted to it
-    automatically. If narration fails, the silent render still lands so no
-    work is lost — the error box says what broke.
+    Beat pipeline (audio-first chain): one container run renders every Scene,
+    each segment is fitted to its own beat with setpts, segments and beat wavs
+    are joined separately, then muxed with the SRT embedded as mov_text. A
+    missing beat drops out with the reason instead of killing the video.
+
+    Without beats (ordinary chat or legacy code), falls back to a single silent
+    render so old chats keep working.
     """
     from vwiz import audio as audio_mod
     from vwiz import render as render_mod
 
+    if not chat.beats or not chat.script:
+        try:
+            with st.spinner(f"Rendering {tag} ({quality}) — up to {settings.render_timeout_s}s…"):
+                path = render_mod.render_scene(
+                    chat.code, chat.id, settings, quality=quality, tag=tag
+                )
+        except render_mod.RenderError as exc:
+            st.session_state["render_error"] = str(exc)[:2000]
+            st.rerun()
+            return
+        chat.video_path = path
+        store.save(chat, settings)
+        st.rerun()
+        return
+
     try:
-        with st.spinner(f"Rendering {tag} ({quality}) — up to {settings.render_timeout_s}s…"):
-            silent = render_mod.render_scene(chat.code, chat.id, settings, quality=quality, tag=tag)
+        with st.spinner(f"Rendering {len(chat.beats)} beat(s) ({quality})…"):
+            rendered = render_mod.render_beats(
+                chat.code, chat.id, settings, quality=quality, tag=tag
+            )
     except render_mod.RenderError as exc:
         st.session_state["render_error"] = str(exc)[:2000]
         st.rerun()
         return
 
-    script = (st.session_state.get(f"narr_{chat.id}", "") or "").strip()
-    if not script:
-        chat.video_path = silent
-        store.save(chat, settings)
+    # Map scenes back to beats in file order; scene i <-> beat i.
+    workdir = settings.renders_dir / chat.id
+    fitted: list[Path] = []
+    problems: list[str] = []
+    for i, beat in enumerate(chat.beats):
+        if i >= len(rendered):
+            problems.append(f"{beat.name}: no scene rendered")
+            continue
+        scene_name, mp4 = rendered[i]
+        try:
+            with st.spinner(f"Fitting {scene_name} to {beat.seconds:.1f}s…"):
+                fitted.append(
+                    audio_mod.fit_segment(
+                        mp4, beat.seconds, workdir / f"fit_{scene_name}.mp4", settings
+                    )
+                )
+        except audio_mod.AudioError as exc:
+            problems.append(f"{beat.name}: {exc}")
+
+    if not fitted:
+        st.session_state["render_error"] = (
+            f"Nothing to join ({'; '.join(problems) or 'no segments'})"
+        )[:2000]
         st.rerun()
         return
 
     try:
-        with st.spinner("Synthesizing voiceover and syncing…"):
-            wav, _ = audio_mod.synthesize(script, chat.id, settings)
-            out = silent.parent / f"{silent.stem}_narrated.mp4"
-            audio_mod.mux_narration(silent, wav, out, settings, rate=settings.tts_speaking_rate)
+        with st.spinner("Joining video, audio, and captions…"):
+            from vwiz.audio import BeatAudio as _BeatAudio
+
+            joined_video = audio_mod.concat_videos(fitted, workdir / f"joined_{tag}.mp4", settings)
+            manifest = [
+                _BeatAudio(
+                    name=b.name, wav=b.wav, seconds=b.seconds, starts_at=b.starts_at, text=""
+                )
+                for b in chat.beats[: len(fitted)]
+            ]
+            # Recover beat texts from the stored script for the SRT.
+            script_beats = dict(audio_mod.split_beats(chat.script or ""))
+            for m in manifest:
+                m.text = script_beats.get(m.name, "")
+            if not any(m.text for m in manifest):
+                # Names drifted (renames); fall back to positional mapping.
+                ordered = [t for _, t in audio_mod.split_beats(chat.script or "")]
+                for m, t in zip(manifest, ordered, strict=False):
+                    m.text = t
+            joined_audio = audio_mod.concat_beat_audio(
+                manifest, workdir / f"joined_{tag}.wav", settings
+            )
+            srt = chat.srt_path if chat.srt_path and chat.srt_path.exists() else None
+            if srt is None:
+                srt = audio_mod.write_srt(
+                    [
+                        _BeatAudio(
+                            name=b.name,
+                            wav=b.wav,
+                            seconds=b.seconds,
+                            starts_at=b.starts_at,
+                            text=script_beats.get(b.name, ""),
+                        )
+                        for b in chat.beats[: len(fitted)]
+                    ],
+                    chat.id,
+                    settings,
+                )
+                chat.srt_path = srt
+            out = audio_mod.mux_final(
+                joined_video, joined_audio, workdir / f"vwiz_{tag}.mp4", settings, srt_path=srt
+            )
     except audio_mod.AudioError as exc:
-        chat.video_path = silent
-        store.save(chat, settings)
-        st.session_state["render_error"] = f"Narration failed ({exc}) — silent video kept."[:2000]
+        st.session_state["render_error"] = str(exc)[:2000]
         st.rerun()
         return
+
     chat.video_path = out
     store.save(chat, settings)
+    if problems:
+        st.session_state["render_error"] = (
+            f"Shipped with {len(fitted)}/{len(chat.beats)} beats ({'; '.join(problems)})"
+        )[:2000]
     st.rerun()
 
 
-def _render_narration(chat: Chat, settings) -> None:
-    """Voiceover script. Preview/Final renders narrate it automatically."""
-    key = f"narr_{chat.id}"
-    if key not in st.session_state:
-        st.session_state[key] = _last_agent_text(chat)
-    st.text_area("Script — narrated automatically on render", key=key, height=100)
-    err = st.session_state.pop("narr_error", None)
-    if err:
-        st.error(err)
+def _render_captions(chat: Chat) -> None:
+    """SRT download plus beat timing summary. The narration box is gone."""
+    if not chat.beats:
+        return
+    total = chat.beats[-1].starts_at + chat.beats[-1].seconds if chat.beats else 0.0
+    st.caption(f"🎙 {len(chat.beats)} beat(s), {total:.1f}s narrated, captions embedded.")
+    if chat.srt_path and chat.srt_path.exists():
+        import contextlib
 
-
-def _last_agent_text(chat: Chat) -> str:
-    """The most recent assistant reply, as the default narration script."""
-    for message in reversed(chat.messages):
-        if message.role is Role.AGENT and message.content.strip():
-            return message.content.strip()[:4000]
-    return ""
+        with contextlib.suppress(OSError):
+            st.download_button(
+                "Download captions (.srt)",
+                data=chat.srt_path.read_text(encoding="utf-8"),
+                file_name="captions.srt",
+                mime="text/plain",
+                key=f"srt_{chat.id}",
+            )
 
 
 def _render_code(chat: Chat) -> None:
