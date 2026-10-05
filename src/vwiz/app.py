@@ -14,6 +14,7 @@ browser refresh.
 from __future__ import annotations
 
 import ast
+import concurrent.futures
 import re
 import subprocess
 import uuid
@@ -196,54 +197,69 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
     surfaced to the Code pane after a syntax check. A transient raw JSON bubble
     shows during generation; the rerun replaces it with the parsed prose and the
     code appears in its pane.
+
+    Title generation runs in a background thread launched *before* the stream
+    starts, so its API latency overlaps the reply instead of adding to it. The
+    title only depends on the first user message, so there is no data dependency
+    on the reply.
     """
-    try:
-        with st.chat_message("assistant"):
-            reply = st.write_stream(llm.stream_reply(chat.messages, settings))
-        raw = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
-    except Exception as exc:
-        # Surface the failure as a normal chat bubble rather than a crash.
-        chat.messages.append(
-            Message(role=Role.AGENT, content=f"⚠️ Could not reach the model: {exc}")
+    need_title = chat.title == "New chat"
+    first_user = _first_user_text(chat) if need_title else ""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        title_future = (
+            executor.submit(llm.make_title, first_user, settings)
+            if need_title and first_user
+            else None
         )
-        if chat.title == "New chat":
-            _set_ai_title(chat, settings)
-        store.save(chat, settings)
-        st.rerun()
-        return
-
-    text, code = llm.parse_reply(raw)
-
-    if code is not None:
-        # Phase 2 guarantee: nothing broken enters the Code pane. A failed parse
-        # leaves the last good scene in place and tells the user why.
         try:
-            ast.parse(code)
-            chat.code = code
-            chat.code_filename = "scene.py"
-        except SyntaxError as exc:
-            text = f"{text}\n\n⚠️ The generated scene failed a syntax check and was not saved: {exc}"
-            code = None
+            with st.chat_message("assistant"):
+                reply = st.write_stream(llm.stream_reply(chat.messages, settings))
+            raw = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
+        except Exception as exc:
+            # Surface the failure as a normal chat bubble rather than a crash.
+            chat.messages.append(
+                Message(role=Role.AGENT, content=f"⚠️ Could not reach the model: {exc}")
+            )
+        else:
+            text, code = llm.parse_reply(raw)
 
-    chat.messages.append(Message(role=Role.AGENT, content=text))
-    if chat.title == "New chat":
-        _set_ai_title(chat, settings)
-    store.save(chat, settings)
+            if code is not None:
+                # Phase 2 guarantee: nothing broken enters the Code pane. A failed
+                # parse leaves the last good scene in place and tells the user why.
+                try:
+                    ast.parse(code)
+                    chat.code = code
+                    chat.code_filename = "scene.py"
+                except SyntaxError as exc:
+                    text = (
+                        f"{text}\n\n⚠️ The generated scene failed a syntax check "
+                        f"and was not saved: {exc}"
+                    )
+
+            chat.messages.append(Message(role=Role.AGENT, content=text))
+
+        _apply_title(chat, title_future, first_user)
+        store.save(chat, settings)
     st.rerun()
 
 
-def _set_ai_title(chat: Chat, settings) -> None:
-    """Name the chat from a short model-generated title, not the raw prompt."""
-    first_user = next(
+def _first_user_text(chat: Chat) -> str:
+    """The first non-empty user message, used as the title source."""
+    return next(
         (m.content for m in chat.messages if m.role is Role.USER and m.content.strip()),
         "",
     )
-    if not first_user:
+
+
+def _apply_title(chat: Chat, title_future, fallback_text: str) -> None:
+    """Resolve a background title call, falling back to prompt text on failure."""
+    if title_future is None:
         return
     try:
-        chat.title = llm.make_title(first_user, settings)
+        chat.title = title_future.result()
     except Exception:
-        chat.title = " ".join(first_user.split())[:40]
+        if fallback_text:
+            chat.title = " ".join(fallback_text.split())[:40]
 
 
 def _render_input(chat: Chat, settings) -> None:
