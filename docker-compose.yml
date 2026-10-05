@@ -1,0 +1,17 @@
+# Qdrant backs the memory MCP server (uploaded PDFs + cross-session facts).
+#
+# Bound to localhost only: it holds project content and must not be reachable
+# off-box. Uncomment QDRANT__API_KEY and set QDRANT_API_KEY in .env before
+# exposing it anywhere beyond this machine.
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: vwiz-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:
