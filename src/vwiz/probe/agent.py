@@ -28,18 +28,32 @@ SKILL_SOURCE = Path("skills/manim-video")
 def prepare_scratch(repo_root: Path | None = None) -> Path:
     """(Re)build the scratch tree: root + skill copy, nothing else.
 
-    Wiping and re-copying each start means a previous run's artefacts can never
-    leak into the next one, and the skill copy is always current.
+    The skill copy is always refreshed, but a previous run's `inputs/` is
+    preserved — wiping the user's staged documents on every start would make
+    `/add` pointless across restarts.
     """
+    import shutil as _shutil
+
     root = Path(repo_root or Path.cwd())
     scratch = root / SCRATCH_ROOT
+    kept_inputs: Path | None = None
     if scratch.exists():
+        old_inputs = scratch / "inputs"
+        if old_inputs.exists():
+            kept_inputs = Path(str(scratch) + ".inputs.keep")
+            if kept_inputs.exists():
+                _shutil.rmtree(kept_inputs)
+            _shutil.move(str(old_inputs), str(kept_inputs))
         shutil.rmtree(scratch)
     skill_src = root / SKILL_SOURCE
     if not (skill_src / "SKILL.md").exists():
         raise RuntimeError(f"Skill missing at {skill_src}; clone manim-video-lab first.")
     shutil.copytree(skill_src, scratch / "skills" / "manim-video")
     (scratch / "inputs").mkdir(parents=True, exist_ok=True)
+    if kept_inputs is not None:
+        for item in kept_inputs.iterdir():
+            _shutil.move(str(item), str(scratch / "inputs" / item.name))
+        _shutil.rmtree(kept_inputs)
     return scratch
 
 

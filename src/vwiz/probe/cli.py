@@ -18,7 +18,11 @@ async def _amain() -> None:
     print("building agent (MCP discovery + skill scan)...")
     ag, tools = await agent_mod.build_agent(settings)
     print(f"tools ({len(tools)}): {', '.join(t.name for t in tools)}")
-    print("type a prompt, or /quit. Replies stream below; tool calls are traced.")
+    print("type a prompt, /add <path> to stage a document, or /quit.")
+    # build_agent already prepared this tree; reuse the path without rebuilding.
+    from pathlib import Path
+
+    scratch = Path.cwd() / agent_mod.SCRATCH_ROOT
     while True:
         try:
             prompt = input("\n> ").strip()
@@ -26,6 +30,9 @@ async def _amain() -> None:
             break
         if not prompt or prompt.lower() in {"/quit", "/q", "quit", "exit"}:
             break
+        if prompt.lower().startswith("/add "):
+            _handle_add(prompt[5:].strip(), scratch, settings)
+            continue
         fired: list[str] = []
         try:
             async for chunk in ag.astream(
@@ -55,6 +62,31 @@ async def _amain() -> None:
                 print(f"(tools used: {', '.join(fired)})")
         except Exception as exc:
             print(f"\nerror: {type(exc).__name__}: {str(exc)[:300]}")
+
+
+def _handle_add(spec: str, scratch, settings) -> None:
+    """Stage a document into inputs/ with an extracted-text sidecar."""
+    from pathlib import Path
+
+    from vwiz.probe.inputs import materialize
+
+    if not spec:
+        print("usage: /add <path-to-file>")
+        return
+    source = Path(spec).expanduser()
+    if not source.is_file():
+        print(f"not a file: {spec}")
+        return
+    try:
+        result = materialize(source, scratch, settings)
+    except Exception as exc:
+        print(f"could not stage {source.name}: {type(exc).__name__}: {exc}")
+        return
+    print(f"staged: inputs/{result['original'].name}")
+    for note in result["notes"]:
+        print(f"  - {note}")
+    if result["sidecar"] is not None:
+        print(f"  ask the agent to read inputs/{result['sidecar'].name}")
 
 
 def main() -> None:
