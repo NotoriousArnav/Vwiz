@@ -23,13 +23,20 @@ from vwiz.models import Chat, Message, Role
 
 st.set_page_config(page_title="Vwiz", page_icon="🪄", layout="wide")
 
+# Height of the two main panes, in pixels. Fixed so the transcript scrolls
+# internally instead of growing the page; the inspector matches it so the
+# columns stay flush.
+_PANE_HEIGHT = 640
+
+# The code pane is narrow, so tighten the block font and let long lines wrap
+# instead of forcing a horizontal scrollbar inside an already-scrolling pane.
 _STYLES = """
 <style>
-.st-key-preview_pane { border-radius: 8px; }
-.st-key-code_pane textarea {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.8rem;
-    line-height: 1.5;
+.st-key-code_pane pre code {
+    font-size: 0.72rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 </style>
 """
@@ -50,8 +57,15 @@ def main() -> None:
 
     chat = _active_chat(settings)
     with _chat_column:
-        _render_chat(chat, settings)
-    with _inspector_column:
+        # A fixed-height container gives the transcript its own scroll area, so
+        # the page never grows past the viewport. `autoscroll` keeps the newest
+        # message in view, which is what makes the pane feel anchored to the
+        # bottom rather than the top.
+        with st.container(height=_PANE_HEIGHT, autoscroll=True):
+            _render_transcript(chat)
+        _render_input(chat, settings)
+
+    with _inspector_column, st.container(height=_PANE_HEIGHT):
         _render_inspector(chat, settings)
 
 
@@ -61,7 +75,7 @@ def main() -> None:
 def _sidebar(settings) -> None:
     st.markdown("## 🪄 Vwiz")
 
-    if st.button("＋ New chat", type="primary", use_container_width=True):
+    if st.button("＋ New chat", type="primary", width="stretch"):
         st.session_state.chat = store.create(settings)
         st.session_state.pop("settings_open", None)
         st.rerun()
@@ -80,7 +94,7 @@ def _sidebar(settings) -> None:
         if cols[0].button(
             label,
             key=f"open_{summary.id}",
-            use_container_width=True,
+            width="stretch",
             type="primary" if is_active else "secondary",
             help=summary.preview,
         ):
@@ -93,7 +107,7 @@ def _sidebar(settings) -> None:
             st.rerun()
 
     st.divider()
-    if st.button("⚙️ Settings", use_container_width=True):
+    if st.button("⚙️ Settings", width="stretch"):
         st.session_state.settings_open = True
 
 
@@ -135,20 +149,66 @@ def _settings_dialog() -> None:
 # --------------------------------------------------------------------------- #
 # Centre: chat window
 # --------------------------------------------------------------------------- #
-def _render_chat(chat: Chat, settings) -> None:
+def _render_transcript(chat: Chat) -> None:
+    """Scrollable message history. Stays pinned to the bottom on new messages."""
+    if not chat.messages:
+        st.markdown("### Ask for a visualization")
+        st.caption(
+            "Describe what you want to see, or attach PDFs and ask the agent to work from them."
+        )
+        _render_suggestions()
+        return
+
     for message in chat.messages:
         with st.chat_message("user" if message.role is Role.USER else "assistant"):
             st.markdown(message.content)
             if message.attachments:
                 _render_attachments(message.attachments)
 
+
+def _render_input(chat: Chat, settings) -> None:
+    """The composer, outside the scroll container so it never scrolls away."""
     prompt = st.chat_input(
         "Ask for a visualization, or attach documents",
         accept_file="multiple",
         file_type=["pdf"],
+        max_upload_size=settings.max_upload_bytes,
     )
+    # A suggestion pill stashes its text here, since st.chat_input only returns
+    # a value on real keyboard/file submission.
+    prompt = prompt or st.session_state.pop("pending_prompt", None)
+
     if prompt:
         _handle_submit(chat, settings, prompt)
+
+
+_SUGGESTIONS = {
+    ":material/movie: Explain eigenvectors visually": (
+        "Explain what an eigenvector is, with an animation that shows a vector "
+        "keeping its direction as the matrix scales it."
+    ),
+    ":material/upload_file: Turn my notes into a video": (
+        "Read the attached notes and turn the key ideas into a short explainer."
+    ),
+    ":material/function: Show me a proof as an animation": (
+        "Animate a proof of the Pythagorean theorem step by step."
+    ),
+}
+
+
+def _render_suggestions() -> None:
+    """Clickable openers, shown only while the chat is empty."""
+    chosen = st.pills(
+        "Try asking:",
+        list(_SUGGESTIONS),
+        selection_mode="single",
+        label_visibility="collapsed",
+        key="suggestion",
+    )
+    if chosen:
+        st.session_state["pending_prompt"] = _SUGGESTIONS[chosen]
+        st.session_state.pop("suggestion", None)
+        st.rerun()
 
 
 def _render_attachments(paths) -> None:
@@ -157,17 +217,23 @@ def _render_attachments(paths) -> None:
 
 
 def _handle_submit(chat: Chat, settings, prompt) -> None:
+    # A suggestion pill arrives as a bare string, so it has no .text/.files.
+    text = (prompt.text if hasattr(prompt, "text") else str(prompt)) or ""
+    files = getattr(prompt, "files", None) or []
+
     attachments = []
-    for uploaded in getattr(prompt, "files", []) or []:
+    for uploaded in files:
         path = _save_upload(uploaded, settings, chat.id)
         attachments.append(path)
         if path not in chat.documents:
             chat.documents.append(path)
 
-    chat.messages.append(Message(role=Role.USER, content=str(prompt.text), attachments=attachments))
+    # An attachment-only turn still needs a bubble to hang the files off.
+    body = text if text.strip() else f"📎 {len(attachments)} file(s) attached"
+    chat.messages.append(Message(role=Role.USER, content=body, attachments=attachments))
     # First real message names the chat, which is all the sidebar shows.
-    if chat.title == "New chat" and prompt.text.strip():
-        chat.title = " ".join(str(prompt.text).split())[:40]
+    if chat.title == "New chat" and text.strip():
+        chat.title = " ".join(text.split())[:40]
 
     # TODO(agent): call the Gemini agent. Stubbed until it lands — it should
     # stream tokens here, set chat.code, and return a render URL.
@@ -213,15 +279,29 @@ def _save_upload(uploaded, settings, chat_id):
 # Right: render preview over generated code
 # --------------------------------------------------------------------------- #
 def _render_inspector(chat: Chat, settings) -> None:
-    st.markdown("### Render")
+    """Render preview stacked over generated code, as a bordered pseudo-table.
 
-    with st.container(key="preview_pane", border=True):
-        _render_preview(chat, settings)
+    A plain stacked pair of containers reads as loose cards. Nesting both inside
+    an outer border with `gap=None` and a header row gives the same content the
+    look of a two-row table, which matches how the panes relate: one artefact,
+    shown two ways.
+    """
+    with st.container(border=True, gap=None):
+        head_left, head_right = st.columns([1, 1], gap="small")
+        with head_left:
+            st.markdown("**Render**")
+            st.caption(f"quick draft · {settings.preview_quality} · {settings.preview_fps}fps")
+        with head_right:
+            st.markdown("**Code**")
+            st.caption(chat.code_filename or "scene.py")
 
-    st.markdown("### Code")
+        st.divider()
 
-    with st.container(key="code_pane", border=True):
-        _render_code(chat)
+        render_left, code_right = st.columns([1, 1], gap="medium")
+        with render_left:
+            _render_preview(chat, settings)
+        with code_right:
+            _render_code(chat)
 
 
 def _render_preview(chat: Chat, settings) -> None:
@@ -245,8 +325,8 @@ def _render_preview(chat: Chat, settings) -> None:
 
 def _render_code(chat: Chat) -> None:
     if chat.code:
-        st.caption(chat.code_filename or "scene.py")
-        st.code(chat.code, language="python")
+        with st.container(key="code_pane"):
+            st.code(chat.code, language="python")
         st.download_button(
             "Download .py",
             data=chat.code,
