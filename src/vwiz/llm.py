@@ -6,6 +6,8 @@ API + LangChain + google-genai path end to end before we build on it.
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Generator, Iterable
 from functools import lru_cache
 from pathlib import Path
@@ -122,6 +124,42 @@ def chunk_text(chunk: object) -> str:
             if isinstance(text, str):
                 parts.append(text)
     return "".join(parts)
+
+
+def parse_reply(raw: str) -> tuple[str, str | None]:
+    """Extract (text, code) from the model's JSON reply.
+
+    Tolerates a stray markdown fence or a little prose around the object by
+    taking the outermost `{...}`. Falls back to (raw, None) when it cannot pull
+    a valid JSON object out, so a malformed reply still produces a readable turn.
+    """
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    start, end = text.find("{"), text.rfind("}")
+    candidate = text[start : end + 1] if start != -1 and end > start else text
+
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError, RecursionError, ValueError:
+        return raw, None
+    if not isinstance(obj, dict):
+        return raw, None
+
+    reply_text = obj.get("text")
+    if not isinstance(reply_text, str):
+        return raw, None
+
+    code = obj.get("code")
+    if isinstance(code, str):
+        code = code.strip()
+        if code.lower() in {"", "null", "none", "n/a"}:
+            code = None
+    else:
+        code = None
+    return reply_text, code
 
 
 def stream_reply(messages: Iterable[Message], settings: Settings) -> Generator[str]:

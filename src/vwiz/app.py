@@ -13,6 +13,7 @@ browser refresh.
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import uuid
@@ -188,20 +189,47 @@ def _render_transcript(chat: Chat, settings) -> None:
 
 
 def _stream_agent_reply(chat: Chat, settings) -> None:
-    """Generate the agent reply with streaming, then persist it."""
+    """Generate the agent reply with streaming, then persist it.
+
+    The model streams its JSON turn raw, then we parse it out: the `text` field
+    becomes the stored assistant message, and a valid Manim scene in `code` is
+    surfaced to the Code pane after a syntax check. A transient raw JSON bubble
+    shows during generation; the rerun replaces it with the parsed prose and the
+    code appears in its pane.
+    """
     try:
         with st.chat_message("assistant"):
             reply = st.write_stream(llm.stream_reply(chat.messages, settings))
-        text = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
+        raw = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
     except Exception as exc:
         # Surface the failure as a normal chat bubble rather than a crash.
-        text = f"⚠️ Could not reach the model: {exc}"
-        with st.chat_message("assistant"):
-            st.markdown(text)
+        chat.messages.append(
+            Message(role=Role.AGENT, content=f"⚠️ Could not reach the model: {exc}")
+        )
+        if chat.title == "New chat":
+            _set_ai_title(chat, settings)
+        store.save(chat, settings)
+        st.rerun()
+        return
+
+    text, code = llm.parse_reply(raw)
+
+    if code is not None:
+        # Phase 2 guarantee: nothing broken enters the Code pane. A failed parse
+        # leaves the last good scene in place and tells the user why.
+        try:
+            ast.parse(code)
+            chat.code = code
+            chat.code_filename = "scene.py"
+        except SyntaxError as exc:
+            text = f"{text}\n\n⚠️ The generated scene failed a syntax check and was not saved: {exc}"
+            code = None
+
     chat.messages.append(Message(role=Role.AGENT, content=text))
     if chat.title == "New chat":
         _set_ai_title(chat, settings)
     store.save(chat, settings)
+    st.rerun()
 
 
 def _set_ai_title(chat: Chat, settings) -> None:
