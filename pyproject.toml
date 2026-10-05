@@ -33,6 +33,8 @@ dependencies = [
     "odfpy>=1.4",
     "beautifulsoup4>=4.12",
     "defusedxml>=0.7",
+    "langchain-google-community[texttospeech]>=5.1.1",
+    "langchain-groq>=1.1.3",
 ]
 
 [project.optional-dependencies]

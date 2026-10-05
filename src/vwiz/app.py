@@ -20,7 +20,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from vwiz import store
+from vwiz import llm, store
 from vwiz.config import get_settings
 from vwiz.models import Chat, Message, Role
 
@@ -68,7 +68,7 @@ def main() -> None:
         # message in view, which is what makes the pane feel anchored to the
         # bottom rather than the top.
         with st.container(height=_PANE_HEIGHT, autoscroll=True):
-            _render_transcript(chat)
+            _render_transcript(chat, settings)
         _render_input(chat, settings)
 
     with _inspector_column, st.container(height=_PANE_HEIGHT):
@@ -155,7 +155,7 @@ def _settings_dialog() -> None:
 # --------------------------------------------------------------------------- #
 # Centre: chat window
 # --------------------------------------------------------------------------- #
-def _render_transcript(chat: Chat) -> None:
+def _render_transcript(chat: Chat, settings) -> None:
     """Scrollable message history. Stays pinned to the bottom on new messages."""
     if not chat.messages:
         st.markdown("### Ask for a visualization")
@@ -179,6 +179,43 @@ def _render_transcript(chat: Chat) -> None:
             st.markdown(message.content)
             if message.attachments:
                 _render_attachments(message.attachments)
+
+    # A pending LLM reply is produced here, inside the transcript container, so
+    # autoscroll follows the stream. It lives here rather than in _handle_submit
+    # because the transcript is drawn before the composer renders the turn.
+    if st.session_state.pop("pending_reply", False):
+        _stream_agent_reply(chat, settings)
+
+
+def _stream_agent_reply(chat: Chat, settings) -> None:
+    """Generate the agent reply with streaming, then persist it."""
+    try:
+        with st.chat_message("assistant"):
+            reply = st.write_stream(llm.stream_reply(chat.messages, settings))
+        text = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
+    except Exception as exc:
+        # Surface the failure as a normal chat bubble rather than a crash.
+        text = f"⚠️ Could not reach the model: {exc}"
+        with st.chat_message("assistant"):
+            st.markdown(text)
+    chat.messages.append(Message(role=Role.AGENT, content=text))
+    if chat.title == "New chat":
+        _set_ai_title(chat, settings)
+    store.save(chat, settings)
+
+
+def _set_ai_title(chat: Chat, settings) -> None:
+    """Name the chat from a short model-generated title, not the raw prompt."""
+    first_user = next(
+        (m.content for m in chat.messages if m.role is Role.USER and m.content.strip()),
+        "",
+    )
+    if not first_user:
+        return
+    try:
+        chat.title = llm.make_title(first_user, settings)
+    except Exception:
+        chat.title = " ".join(first_user.split())[:40]
 
 
 def _render_input(chat: Chat, settings) -> None:
@@ -253,20 +290,24 @@ def _handle_submit(chat: Chat, settings, prompt) -> None:
     # An attachment-only turn still needs a bubble to hang the files off.
     body = text if text.strip() else f"📎 {len(attachments)} file(s) attached"
     chat.messages.append(Message(role=Role.USER, content=body, attachments=attachments))
-    # First real message names the chat, which is all the sidebar shows.
-    if chat.title == "New chat" and text.strip():
-        chat.title = " ".join(text.split())[:40]
 
-    # TODO(agent): call the Gemini agent. Stubbed until it lands — it should
-    # stream tokens here, set chat.code, and return a render URL.
+    # The LLM reply is produced in _render_transcript so it can stream inside
+    # the transcript's autoscrolling container. Signal it and rerun; the turn
+    # resolves on the next render. On a fully rejected upload there is no model
+    # call, so name the chat from the prompt text instead.
     if rejected:
-        reply = f"{rejected} file(s) could not be read; see the error above."
+        chat.messages.append(
+            Message(
+                role=Role.AGENT,
+                content=f"{rejected} file(s) could not be read; see the error above.",
+            )
+        )
+        st.session_state["pending_reply"] = False
+        if chat.title == "New chat" and text.strip():
+            chat.title = " ".join(text.split())[:40]
     else:
-        reply = "Agent not wired yet. Received your message"
-        if attachments:
-            reply += f" and {len(attachments)} attachment(s)."
+        st.session_state["pending_reply"] = True
 
-    chat.messages.append(Message(role=Role.AGENT, content=reply))
     store.save(chat, settings)
     st.rerun()
 

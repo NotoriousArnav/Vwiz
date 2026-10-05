@@ -27,10 +27,18 @@ class Settings(BaseSettings):
     google_cloud_project: str | None = None
     google_application_credentials: Path | None = None
     tavily_api_key: str | None = Field(default=None, repr=False)
+    # Groq is the fallback provider, used when the Gemini daily quota is hit.
+    # Optional: with no key set, the fallback chain just skips it.
+    groq_api_key: str | None = Field(default=None, repr=False)
+    groq_model: str = "openai/gpt-oss-120b"
 
     # Model ids are pinned explicitly rather than tracked: Gemini preview names
     # churn, and an unpinned "latest" silently changes behaviour between runs.
-    gemini_agent_model: str = "gemini-3.1-pro-preview"
+    #
+    # The agent defaults to Flash because the current AI Studio key is free-tier
+    # and Pro gets zero quota on it. Flip this back to gemini-3.1-pro-preview once
+    # billing is enabled and the agent is generating Manim scene code.
+    gemini_agent_model: str = "gemini-3.8-flash"
     gemini_fast_model: str = "gemini-3.8-flash"
     gemini_fallback_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
