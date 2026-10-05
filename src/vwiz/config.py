@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # --- Render node --------------------------------------------------------
     render_node_url: str = "http://localhost:8000"
     render_node_token: str | None = Field(default=None, repr=False)
-    render_image: str = "vwiz/render-node:latest"
+    render_image: str = "manimcommunity/manim:latest"
     render_timeout_s: int = 300
     render_memory: str = "2g"
     render_cpus: str = "2"

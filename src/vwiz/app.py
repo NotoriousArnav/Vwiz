@@ -562,6 +562,7 @@ def _render_inspector(chat: Chat, settings) -> None:
         st.markdown("**Render**")
         with st.container(border=True, height=_CANVAS_HEIGHT):
             _render_preview(chat, settings)
+        _render_actions(chat, settings)
 
         st.divider()
 
@@ -598,6 +599,37 @@ def _render_preview(chat: Chat, settings) -> None:
         )
     else:
         st.info("Your rendered video will appear here.")
+
+
+def _render_actions(chat: Chat, settings) -> None:
+    """Preview / Final buttons. Failures persist as an error box, not a crash."""
+    if not chat.code:
+        st.caption("Generate a scene first — the Code pane feeds the renderer.")
+        return
+    err = st.session_state.pop("render_error", None)
+    if err:
+        st.error(err)
+    cols = st.columns(2)
+    if cols[0].button("🎬 Preview", key="render_preview", width="stretch"):
+        _run_render(chat, settings, settings.preview_quality, "preview")
+    if cols[1].button("✨ Final", key="render_final", width="stretch"):
+        _run_render(chat, settings, settings.final_quality, "final")
+
+
+def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
+    """Blocking render with a spinner, then persist the video path."""
+    from vwiz import render as render_mod
+
+    try:
+        with st.spinner(f"Rendering {tag} ({quality}) — up to {settings.render_timeout_s}s…"):
+            path = render_mod.render_scene(chat.code, chat.id, settings, quality=quality, tag=tag)
+    except render_mod.RenderError as exc:
+        st.session_state["render_error"] = str(exc)[:2000]
+        st.rerun()
+        return
+    chat.video_path = path
+    store.save(chat, settings)
+    st.rerun()
 
 
 def _render_code(chat: Chat) -> None:
