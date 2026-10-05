@@ -314,18 +314,20 @@ def _render_transcript(chat: Chat, settings) -> None:
 
 
 def _stream_agent_reply(chat: Chat, settings) -> None:
-    """Generate the agent reply with streaming, then persist it.
+    """Generate the reply, preferably via the MCP + skill agent, then persist it.
 
-    The model streams its JSON turn raw, then we parse it out: the `text` field
-    becomes the stored assistant message, and a valid Manim scene in `code` is
-    surfaced to the Code pane after a syntax check. A transient raw JSON bubble
-    shows during generation; the rerun replaces it with the parsed prose and the
-    code appears in its pane.
+    The agent turn (web research tools, manim-video skill, staged documents)
+    runs first with a bounded wait. Any failure — quota, tier token ceiling,
+    MCP down, Ollama asleep — falls back to the direct single-model reply, so
+    the app never gets worse than it was before the agent existed. Tool calls
+    render in an expander above the reply; the `text` becomes the stored
+    assistant message and a valid Manim scene in `code` reaches the Code pane
+    after the same syntax check as the direct path.
 
-    Title generation runs in a background thread launched *before* the stream
-    starts, so its API latency overlaps the reply instead of adding to it. The
-    title only depends on the first user message, so there is no data dependency
-    on the reply.
+    Title generation runs in a background thread launched *before* the reply
+    starts, so its API latency overlaps instead of adding. The title only
+    depends on the first user message, so there is no data dependency on the
+    reply.
     """
     need_title = chat.title == "New chat"
     first_user = _first_user_text(chat) if need_title else ""
@@ -335,38 +337,57 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
             if need_title and first_user
             else None
         )
-        try:
-            with st.chat_message("assistant"):
-                reply = st.write_stream(
-                    llm.stream_reply(chat.messages, settings, documents=chat.documents)
+        text, code, tool_names = _agent_or_direct(chat, settings)
+
+        if code is not None:
+            # Phase 2 guarantee: nothing broken enters the Code pane. A failed
+            # parse leaves the last good scene in place and tells the user why.
+            try:
+                ast.parse(code)
+                chat.code = code
+                chat.code_filename = "scene.py"
+            except SyntaxError as exc:
+                text = (
+                    f"{text}\n\n⚠️ The generated scene failed a syntax check "
+                    f"and was not saved: {exc}"
                 )
-            raw = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
-        except Exception as exc:
-            # Surface the failure as a normal chat bubble rather than a crash.
-            chat.messages.append(
-                Message(role=Role.AGENT, content=f"⚠️ Could not reach the model: {exc}")
-            )
-        else:
-            text, code = llm.parse_reply(raw)
 
-            if code is not None:
-                # Phase 2 guarantee: nothing broken enters the Code pane. A failed
-                # parse leaves the last good scene in place and tells the user why.
-                try:
-                    ast.parse(code)
-                    chat.code = code
-                    chat.code_filename = "scene.py"
-                except SyntaxError as exc:
-                    text = (
-                        f"{text}\n\n⚠️ The generated scene failed a syntax check "
-                        f"and was not saved: {exc}"
-                    )
-
-            chat.messages.append(Message(role=Role.AGENT, content=text))
+        with st.chat_message("assistant"):
+            if tool_names:
+                with st.expander(f"🔧 {len(tool_names)} tool(s): {', '.join(tool_names)}"):
+                    for name in tool_names:
+                        st.caption(f"called `{name}`")
+            st.markdown(text)
+        chat.messages.append(Message(role=Role.AGENT, content=text))
 
         _apply_title(chat, title_future, first_user)
         store.save(chat, settings)
     st.rerun()
+
+
+def _agent_or_direct(chat: Chat, settings) -> tuple[str, str | None, list[str]]:
+    """One reply via the agent, falling back to the direct model on any failure.
+
+    Returns (text, code, tool_names). The fallback keeps the app usable through
+    quota exhaustion, tier token ceilings, MCP outages, or a sleeping Ollama —
+    the agent is an upgrade, never a dependency.
+    """
+    import asyncio
+
+    from vwiz.probe.turn import run_agent_turn
+
+    try:
+        with st.spinner("Agent working — researching, reading skill, drafting…"):
+            result = asyncio.run(asyncio.wait_for(run_agent_turn(chat, settings), 240))
+        return result.text, result.code, result.tool_names
+    except Exception:
+        pass
+    try:
+        raw = "".join(llm.stream_reply(chat.messages, settings, documents=chat.documents))
+    except Exception as exc:
+        return f"⚠️ Could not reach the model: {exc}", None, []
+    text, code = llm.parse_reply(raw)
+    return text, code, []
 
 
 def _first_user_text(chat: Chat) -> str:
