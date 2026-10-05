@@ -13,13 +13,19 @@ browser refresh.
 
 from __future__ import annotations
 
+import re
 import subprocess
+import uuid
+from pathlib import Path
 
 import streamlit as st
 
 from vwiz import store
 from vwiz.config import get_settings
 from vwiz.models import Chat, Message, Role
+
+# Filenames arriving from a client are untrusted.
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 st.set_page_config(page_title="Vwiz", page_icon="🪄", layout="wide")
 
@@ -154,10 +160,19 @@ def _render_transcript(chat: Chat) -> None:
     if not chat.messages:
         st.markdown("### Ask for a visualization")
         st.caption(
-            "Describe what you want to see, or attach PDFs and ask the agent to work from them."
+            "Describe what you want to see, or attach documents and ask the agent "
+            "to work from them."
         )
         _render_suggestions()
         return
+
+    # Confirms what actually parsed out of the attachments, so a silently empty
+    # extraction is visible instead of just producing a confused agent later.
+    notes = st.session_state.get("upload_notes") or []
+    if notes:
+        with st.popover(f":material/checklist: {len(notes)} file(s) read"):
+            for note in notes:
+                st.caption(note)
 
     for message in chat.messages:
         with st.chat_message("user" if message.role is Role.USER else "assistant"):
@@ -171,7 +186,7 @@ def _render_input(chat: Chat, settings) -> None:
     prompt = st.chat_input(
         "Ask for a visualization, or attach documents",
         accept_file="multiple",
-        file_type=["pdf"],
+        file_type=settings.accepted_upload_types,
         max_upload_size=settings.max_upload_bytes,
     )
     # A suggestion pill stashes its text here, since st.chat_input only returns
@@ -213,7 +228,7 @@ def _render_suggestions() -> None:
 
 def _render_attachments(paths) -> None:
     for path in paths:
-        st.caption(f"📎 {path.name}")
+        st.caption(f":material/attach_file: {path.name}")
 
 
 def _handle_submit(chat: Chat, settings, prompt) -> None:
@@ -221,9 +236,16 @@ def _handle_submit(chat: Chat, settings, prompt) -> None:
     text = (prompt.text if hasattr(prompt, "text") else str(prompt)) or ""
     files = getattr(prompt, "files", None) or []
 
+    # Extraction notes belong to the turn being submitted, not the whole session.
+    st.session_state["upload_notes"] = []
+
     attachments = []
+    rejected = 0
     for uploaded in files:
         path = _save_upload(uploaded, settings, chat.id)
+        if path is None:
+            rejected += 1
+            continue
         attachments.append(path)
         if path not in chat.documents:
             chat.documents.append(path)
@@ -237,41 +259,59 @@ def _handle_submit(chat: Chat, settings, prompt) -> None:
 
     # TODO(agent): call the Gemini agent. Stubbed until it lands — it should
     # stream tokens here, set chat.code, and return a render URL.
-    chat.messages.append(
-        Message(
-            role=Role.AGENT,
-            content=(
-                "Agent not wired yet. Received your message"
-                + (f" and {len(attachments)} attachment(s)." if attachments else ".")
-            ),
-        )
-    )
+    if rejected:
+        reply = f"{rejected} file(s) could not be read; see the error above."
+    else:
+        reply = "Agent not wired yet. Received your message"
+        if attachments:
+            reply += f" and {len(attachments)} attachment(s)."
+
+    chat.messages.append(Message(role=Role.AGENT, content=reply))
     store.save(chat, settings)
     st.rerun()
 
 
 def _save_upload(uploaded, settings, chat_id):
-    """Persist an upload under a server-generated filename."""
-    import re
-    import uuid
-    from pathlib import Path
+    """Validate and persist an upload, then confirm its text is extractable.
+
+    Rejecting an unreadable file here means the user learns immediately, rather
+    than after the agent reports that it found nothing to work with.
+    """
+    from vwiz import ingest
+
+    base = Path(uploaded.name or "").name
 
     if uploaded.size > settings.max_upload_bytes:
-        st.error(
-            f"{uploaded.name} exceeds the {settings.max_upload_bytes // 1024 // 1024}MB limit."
+        st.error(f"{base} exceeds the {settings.max_upload_bytes // 1024 // 1024}MB limit.")
+        return None
+
+    try:
+        # Client-supplied names are untrusted: keep the basename, drop directory
+        # components, and strip anything outside a conservative character set.
+        safe = _UNSAFE.sub("_", base).strip("._") or "upload.txt"
+        safe = safe[:120]
+
+        target_dir = settings.uploads_dir / chat_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{uuid.uuid4().hex[:8]}_{safe}"
+        target.write_bytes(uploaded.getvalue())
+
+        result = ingest.extract(
+            target,
+            max_chars=settings.max_document_chars,
+            max_expanded_bytes=settings.max_archive_expanded_bytes,
         )
-        st.stop()
+    except ingest.UnsupportedFormat as exc:
+        st.error(f"{base}: {exc}")
+        return None
+    except (OSError, ValueError) as exc:
+        st.error(f"{base}: could not be read ({exc}).")
+        return None
 
-    # Client-supplied names are untrusted: keep the basename, drop directory
-    # components and anything outside a conservative character set.
-    base = Path(uploaded.name or "").name
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._") or "upload.pdf"
-    safe = safe[:120]
-
-    target_dir = settings.uploads_dir / chat_id
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{uuid.uuid4().hex[:8]}_{safe}"
-    target.write_bytes(uploaded.getvalue())
+    st.session_state.setdefault("upload_notes", []).append(
+        f"{base}: {len(result.text):,} characters ({result.kind})"
+        + (f" — {'; '.join(result.warnings)}" if result.warnings else "")
+    )
     return target
 
 
@@ -281,61 +321,59 @@ def _save_upload(uploaded, settings, chat_id):
 def _render_inspector(chat: Chat, settings) -> None:
     """Render preview stacked over generated code, as a bordered pseudo-table.
 
-    A plain stacked pair of containers reads as loose cards. Nesting both inside
-    an outer border with `gap=None` and a header row gives the same content the
-    look of a two-row table, which matches how the panes relate: one artefact,
-    shown two ways.
+    Each row is a canvas: a fixed-height frame that always takes its share of
+    the column, holding either the result (video, code) or the status/error
+    message for that stage. Empty panes therefore look like intentional
+    placeholders rather than collapsed emptiness.
     """
     with st.container(border=True, gap=None):
-        head_left, head_right = st.columns([1, 1], gap="small")
-        with head_left:
-            st.markdown("**Render**")
-            st.caption(f"quick draft · {settings.preview_quality} · {settings.preview_fps}fps")
-        with head_right:
-            st.markdown("**Code**")
-            st.caption(chat.code_filename or "scene.py")
+        st.markdown("**Render**")
+        with st.container(border=True, height=_CANVAS_HEIGHT):
+            _render_preview(chat, settings)
 
         st.divider()
 
-        render_left, code_right = st.columns([1, 1], gap="medium")
-        with render_left:
-            _render_preview(chat, settings)
-        with code_right:
+        st.markdown("**Code**")
+        with st.container(key="code_pane", border=True, height=_CANVAS_HEIGHT):
             _render_code(chat)
+        if chat.code:
+            st.download_button(
+                "Download .py",
+                data=chat.code,
+                file_name=chat.code_filename or "scene.py",
+                mime="text/x-python",
+            )
+
+
+# Height of each preview/code canvas inside the inspector column.
+_CANVAS_HEIGHT = 250
 
 
 def _render_preview(chat: Chat, settings) -> None:
-    st.caption(f"Quick draft · {settings.preview_quality} · {settings.preview_fps}fps")
-
     if chat.video_path and chat.video_path.exists():
         st.video(str(chat.video_path))
         return
 
     if chat.code:
         st.info(
-            "No preview yet. The render node is not wired up — this pane will "
+            "No preview yet. The render node is not wired up — this canvas will "
             "show a fast low-quality draft here, with the final render on demand."
         )
+    elif not _docker_ready():
+        st.error(
+            "Docker socket unavailable — rendering cannot start. Add your user to "
+            "the `docker` group and re-login."
+        )
     else:
-        st.info("Generated Manim code will preview here.")
-
-    if not _docker_ready():
-        st.caption("⚠️ Docker socket unavailable, so rendering cannot start.")
+        st.info("Your rendered video will appear here.")
 
 
 def _render_code(chat: Chat) -> None:
     if chat.code:
-        with st.container(key="code_pane"):
-            st.code(chat.code, language="python")
-        st.download_button(
-            "Download .py",
-            data=chat.code,
-            file_name=chat.code_filename or "scene.py",
-            mime="text/x-python",
-        )
+        st.code(chat.code, language="python")
         return
 
-    st.info("Generated Manim code appears here.")
+    st.info("The agent's generated Manim code will appear here.")
 
 
 # --------------------------------------------------------------------------- #

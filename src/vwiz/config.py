@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     max_render_attempts: int = 3
     max_pdf_pages: int = 300
     max_upload_bytes: int = 32 * 1024 * 1024
+    max_document_chars: int = 2_000_000
+    # `.docx`/`.odt` are zip archives, so the upload cap bounds compressed bytes
+    # only. This caps the *expanded* size, read from the zip central directory
+    # before anything is inflated.
+    max_archive_expanded_bytes: int = 256 * 1024 * 1024
 
     # --- Paths --------------------------------------------------------------
     data_dir: Path = Path("./data")
@@ -88,6 +93,13 @@ class Settings(BaseSettings):
         """Create the data tree. Safe to call repeatedly."""
         for directory in (self.projects_dir, self.uploads_dir, self.renders_dir):
             directory.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def accepted_upload_types(self) -> list[str]:
+        """Extensions offered to the file uploader, derived from the extractors."""
+        from vwiz.ingest import SUPPORTED_SUFFIXES
+
+        return [suffix.lstrip(".") for suffix in SUPPORTED_SUFFIXES]
 
     def missing_credentials(self) -> list[str]:
         """Which credentials are absent, for display in the UI."""
