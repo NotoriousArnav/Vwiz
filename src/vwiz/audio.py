@@ -121,7 +121,10 @@ def synthesize(
         )
     except Exception as exc:
         # Interactions is new surface; the legacy stream is the flat fallback.
-        print(f"[vwiz] tts: beat {name!r} interactions failed ({exc}) — legacy fallback", flush=True)
+        print(
+            f"[vwiz] tts: beat {name!r} interactions failed ({exc}) — legacy fallback",
+            flush=True,
+        )
         try:
             _synthesize_legacy(script, out, settings)
         except Exception as legacy_exc:
@@ -132,7 +135,10 @@ def synthesize(
         seconds = wav.getnframes() / wav.getframerate()
     if seconds <= 0:
         raise AudioError("TTS returned zero-length audio")
-    print(f"[vwiz] tts: beat {name!r} done: {seconds:.1f}s wav ({out.stat().st_size} bytes)", flush=True)
+    print(
+        f"[vwiz] tts: beat {name!r} done: {seconds:.1f}s wav ({out.stat().st_size} bytes)",
+        flush=True,
+    )
     return out, seconds
 
 
