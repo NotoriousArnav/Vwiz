@@ -31,28 +31,6 @@ __all__ = ["TurnResult", "model_string", "run_agent_turn"]
 _GROQ_SLIM_TOOLS = frozenset({"exa_agent_run", "tavily_tavily_crawl", "tavily_tavily_map"})
 
 
-_AGENT_CONTRACT = """
-## Tool-use discipline
-
-Tools are for research, file reads, and Manim reference only. Your reply to
-the user is plain chat text, never a tool or function call — there is no tool
-that accepts the reply itself, and such a call is rejected outright.
-
-## Agent reply format (overrides ## Output format above)
-
-The JSON-in-text contract does not apply when tools are present: emitting it
-as a function call fails. Instead, reply in plain prose, and when the user
-asked for a scene, append it as one fenced block at the end:
-
-```python
-<the self-contained Scene class>
-```
-
-For an ordinary conversational reply there is no fence. Never emit raw JSON,
-fenced or otherwise — prose plus at most one ```python fence.
-"""
-
-
 @dataclass
 class TurnResult:
     """What one agent turn produced."""
@@ -143,7 +121,7 @@ async def run_agent_turn(chat, settings: Settings) -> TurnResult:
             backend=FilesystemBackend(root_dir=str(scratch), virtual_mode=True),
             tools=tools,
             skills=["skills/"],
-            system_prompt=llm.system_prompt() + _AGENT_CONTRACT,
+            system_prompt=llm.agent_prompt(),
         )
         fleet = ", ".join(server_names(settings)) or "none"
         notes.append(f"fleet: {fleet} ({len(tools)} tools)")

@@ -96,6 +96,44 @@ def system_prompt() -> str:
     return text
 
 
+_OUTPUT_FORMAT_HEADING = "## Output format"
+
+_AGENT_FORMAT = """
+## Agent reply format
+
+Tools are for research, file reads, and Manim reference only. Your reply to
+the user is plain chat text, never a tool or function call and never raw
+JSON — there is no tool that accepts the reply itself, and such a call is
+rejected outright. When the user asked for a scene, append it as one fenced
+block at the end:
+
+```python
+<the self-contained Scene class>
+```
+
+For an ordinary conversational reply there is no fence.
+"""
+
+
+@lru_cache(maxsize=1)
+def agent_prompt() -> str:
+    """System prompt for tool-calling turns: shared sections, agent format.
+
+    The direct path's `## Output format` (raw JSON in text) stays out: with
+    tools bound, models emit that JSON as a phantom function call, or emit it
+    with literal newlines that no JSON parser accepts. Either way the Code
+    pane contract breaks, so agent turns use prose plus at most one fence.
+    """
+    base = system_prompt()
+    if _OUTPUT_FORMAT_HEADING not in base:
+        raise RuntimeError(
+            f"{_SYSTEM_PROMPT_PATH} lost its {_OUTPUT_FORMAT_HEADING!r} section; "
+            "the agent prompt cannot be built without it"
+        )
+    shared = base.split(_OUTPUT_FORMAT_HEADING)[0].rstrip()
+    return shared + "\n\n" + _AGENT_FORMAT.strip()
+
+
 def to_langchain(messages: Iterable[Message]) -> list[HumanMessage | AIMessage | SystemMessage]:
     """Map project messages onto LangChain messages for the chat model.
 
@@ -154,9 +192,11 @@ def parse_reply(raw: str) -> tuple[str, str | None]:
     try:
         obj = json.loads(candidate)
     except json.JSONDecodeError, RecursionError, ValueError:
-        return raw, None
+        salvaged = _salvage_envelope(text)
+        return salvaged if salvaged is not None else (raw, None)
     if not isinstance(obj, dict):
-        return raw, None
+        salvaged = _salvage_envelope(text)
+        return salvaged if salvaged is not None else (raw, None)
 
     reply_text = obj.get("text")
     if not isinstance(reply_text, str):
@@ -172,13 +212,44 @@ def parse_reply(raw: str) -> tuple[str, str | None]:
     return reply_text, code
 
 
-def parse_agent_reply(raw: str) -> tuple[str, str | None]:
-    """Extract (text, code) from an agent turn's plain-text reply.
+def _salvage_envelope(raw: str) -> tuple[str, str | None] | None:
+    """Best-effort rescue of a JSON envelope with literal newlines in it.
 
-    The direct path uses `parse_reply` (raw JSON), which tool-calling models
-    emit as phantom function calls — so agent turns use prose plus at most one
-    ```python fence instead. Returns the prose and the fence body, if any.
+    Models routinely emit multi-line prose with real newlines inside the
+    `"text"` value, which is invalid JSON no parser accepts. Since our
+    envelope shape is fixed, pull the two fields out directly and unescape
+    what the model did escape. Returns None when the shape is absent.
     """
+    match = re.search(r'"text"\s*:\s*"(.*)"\s*,\s*"code"\s*:\s*(null|"(.*?)")\s*}', raw, re.DOTALL)
+    if not match:
+        return None
+
+    def _unescape(value: str) -> str:
+        sentinel = "\ue000"
+        value = value.replace("\\\\", sentinel)
+        value = (
+            value.replace('\\"', '"').replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
+        )
+        return value.replace(sentinel, "\\")
+
+    body = _unescape(match.group(1)).strip()
+    code_raw = match.group(3)
+    code = _unescape(code_raw).strip() if code_raw is not None else ""
+    if code.lower() in {"", "null", "none", "n/a"}:
+        code = ""
+    return body or raw, code or None
+
+
+def parse_agent_reply(raw: str) -> tuple[str, str | None]:
+    """Extract (text, code) from an agent turn's reply.
+
+    Agent turns speak prose plus at most one ```python fence, but a model may
+    still emit the direct path's JSON envelope out of habit — so the envelope
+    (parsed or salvaged) wins when present, and the fence rule covers the rest.
+    """
+    text, code = parse_reply(raw)
+    if text != raw or code is not None:
+        return text, code
     text = raw.strip()
     fence = re.search(r"```python\s*(.+?)\s*```", text, re.DOTALL)
     if not fence:

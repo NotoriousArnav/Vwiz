@@ -302,7 +302,7 @@ def _render_transcript(chat: Chat, settings) -> None:
 
     for message in chat.messages:
         with st.chat_message("user" if message.role is Role.USER else "assistant"):
-            st.markdown(message.content)
+            st.markdown(_display_text(message.content))
             if message.attachments:
                 _render_attachments(message.attachments)
 
@@ -452,6 +452,20 @@ def _render_suggestions() -> None:
         st.session_state["pending_prompt"] = _SUGGESTIONS[chosen]
         st.session_state.pop("suggestion", None)
         st.rerun()
+
+
+def _display_text(content: str) -> str:
+    """What the transcript shows for a stored message.
+
+    Last-resort salvage: if a past turn stored the raw JSON envelope (invalid
+    JSON with literal newlines, or a fence-less agent reply), extract the
+    prose here so old chats heal on reload instead of showing the blob.
+    """
+    if content.strip().startswith("{"):
+        text, _ = llm.parse_reply(content)
+        if text != content:
+            return text
+    return content
 
 
 def _render_attachments(paths) -> None:
