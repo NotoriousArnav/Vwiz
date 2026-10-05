@@ -213,7 +213,9 @@ def _stream_agent_reply(chat: Chat, settings) -> None:
         )
         try:
             with st.chat_message("assistant"):
-                reply = st.write_stream(llm.stream_reply(chat.messages, settings))
+                reply = st.write_stream(
+                    llm.stream_reply(chat.messages, settings, documents=chat.documents)
+                )
             raw = reply if isinstance(reply, str) else "".join(str(part) for part in reply)
         except Exception as exc:
             # Surface the failure as a normal chat bubble rather than a crash.
