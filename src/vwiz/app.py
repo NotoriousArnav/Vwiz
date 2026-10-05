@@ -564,6 +564,9 @@ def _render_inspector(chat: Chat, settings) -> None:
             _render_preview(chat, settings)
         _render_actions(chat, settings)
 
+        st.markdown("**Narration**")
+        _render_narration(chat, settings)
+
         st.divider()
 
         st.markdown("**Code**")
@@ -628,6 +631,51 @@ def _run_render(chat: Chat, settings, quality: str, tag: str) -> None:
         st.rerun()
         return
     chat.video_path = path
+    store.save(chat, settings)
+    st.rerun()
+
+
+def _render_narration(chat: Chat, settings) -> None:
+    """Voiceover: script box plus a button that fits the latest video to it."""
+    key = f"narr_{chat.id}"
+    if key not in st.session_state:
+        st.session_state[key] = _last_agent_text(chat)
+    st.text_area("Script", key=key, height=100)
+    err = st.session_state.pop("narr_error", None)
+    if err:
+        st.error(err)
+    if not chat.video_path or not chat.video_path.exists():
+        st.caption("Render a video first — narration fits itself to it.")
+        return
+    if st.button("🎙 Narrate", key=f"narrate_{chat.id}", width="stretch"):
+        _run_narrate(chat, settings, st.session_state.get(key, ""))
+
+
+def _last_agent_text(chat: Chat) -> str:
+    """The most recent assistant reply, as the default narration script."""
+    for message in reversed(chat.messages):
+        if message.role is Role.AGENT and message.content.strip():
+            return message.content.strip()[:4000]
+    return ""
+
+
+def _run_narrate(chat: Chat, settings, script: str) -> None:
+    """Synthesize the script, sync the video to it, and point the canvas over."""
+    from vwiz import audio as audio_mod
+
+    try:
+        with st.spinner("Synthesizing voiceover…"):
+            wav, seconds = audio_mod.synthesize(script, chat.id, settings)
+        with st.spinner(f"Syncing video to {seconds:.1f}s of narration…"):
+            out = settings.renders_dir / chat.id / f"{chat.video_path.stem}_narrated.mp4"
+            audio_mod.mux_narration(
+                chat.video_path, wav, out, settings, rate=settings.tts_speaking_rate
+            )
+    except audio_mod.AudioError as exc:
+        st.session_state["narr_error"] = str(exc)[:2000]
+        st.rerun()
+        return
+    chat.video_path = out
     store.save(chat, settings)
     st.rerun()
 
