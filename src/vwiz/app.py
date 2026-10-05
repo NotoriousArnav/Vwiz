@@ -846,7 +846,38 @@ def _active_chat(settings) -> Chat:
     if chat is None:
         chat = store.create(settings)
         st.session_state.chat = chat
+        return chat
+    migrated = _migrate_chat(chat)
+    if migrated is not chat:
+        st.session_state.chat = migrated
+        return migrated
     return chat
+
+
+def _migrate_chat(chat) -> Chat:
+    """Rebuild chats created before new fields existed (script/beats/srt_path).
+
+    Streamlit keeps the live chat in session_state across code reloads, so a
+    chat built by the old Chat class never gains the new attributes — disk
+    reload would fill defaults, but the in-memory object bypasses it. Detect
+    the missing fields and revalidate through the current model, which fills
+    defaults. Returns the same object when nothing is missing.
+    """
+    for field in ("script", "beats", "srt_path"):
+        try:
+            getattr(chat, field)
+        except AttributeError:
+            break
+    else:
+        return chat
+    try:
+        data = chat.model_dump()
+    except Exception:
+        return chat
+    try:
+        return Chat.model_validate(data)
+    except Exception:
+        return chat
 
 
 def _docker_ready() -> bool:
