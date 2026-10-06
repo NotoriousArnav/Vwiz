@@ -1,0 +1,1337 @@
+[
+  {
+    "word": "Imagine",
+    "start": 0.26,
+    "end": 0.66
+  },
+  {
+    "word": "a",
+    "start": 0.66,
+    "end": 0.88
+  },
+  {
+    "word": "grid",
+    "start": 0.88,
+    "end": 1.1
+  },
+  {
+    "word": "of",
+    "start": 1.1,
+    "end": 1.28
+  },
+  {
+    "word": "numbers",
+    "start": 1.28,
+    "end": 1.58
+  },
+  {
+    "word": "arranged",
+    "start": 1.58,
+    "end": 2.08
+  },
+  {
+    "word": "in",
+    "start": 2.08,
+    "end": 2.28
+  },
+  {
+    "word": "rows",
+    "start": 2.28,
+    "end": 2.58
+  },
+  {
+    "word": "and",
+    "start": 2.58,
+    "end": 2.86
+  },
+  {
+    "word": "columns.",
+    "start": 2.86,
+    "end": 3.54
+  },
+  {
+    "word": "That's",
+    "start": 2.94,
+    "end": 3.84
+  },
+  {
+    "word": "a",
+    "start": 3.84,
+    "end": 3.96
+  },
+  {
+    "word": "matrix.",
+    "start": 3.96,
+    "end": 4.56
+  },
+  {
+    "word": "In",
+    "start": 4.82,
+    "end": 5.04
+  },
+  {
+    "word": "mathematics,",
+    "start": 5.04,
+    "end": 5.68
+  },
+  {
+    "word": "a",
+    "start": 5.68,
+    "end": 5.78
+  },
+  {
+    "word": "matrix",
+    "start": 5.78,
+    "end": 6.04
+  },
+  {
+    "word": "is",
+    "start": 6.04,
+    "end": 6.34
+  },
+  {
+    "word": "more",
+    "start": 6.34,
+    "end": 6.52
+  },
+  {
+    "word": "than",
+    "start": 6.52,
+    "end": 6.72
+  },
+  {
+    "word": "a",
+    "start": 6.72,
+    "end": 6.82
+  },
+  {
+    "word": "table.",
+    "start": 6.82,
+    "end": 7.16
+  },
+  {
+    "word": "It's",
+    "start": 6.74,
+    "end": 7.54
+  },
+  {
+    "word": "a",
+    "start": 7.54,
+    "end": 7.64
+  },
+  {
+    "word": "compact",
+    "start": 7.64,
+    "end": 8.06
+  },
+  {
+    "word": "way",
+    "start": 8.06,
+    "end": 8.36
+  },
+  {
+    "word": "to",
+    "start": 8.36,
+    "end": 8.56
+  },
+  {
+    "word": "describe",
+    "start": 8.56,
+    "end": 8.94
+  },
+  {
+    "word": "a",
+    "start": 8.94,
+    "end": 9.12
+  },
+  {
+    "word": "linear",
+    "start": 9.12,
+    "end": 9.36
+  },
+  {
+    "word": "transformation,",
+    "start": 9.36,
+    "end": 10.4
+  },
+  {
+    "word": "a",
+    "start": 10.4,
+    "end": 10.64
+  },
+  {
+    "word": "change",
+    "start": 10.64,
+    "end": 10.84
+  },
+  {
+    "word": "of",
+    "start": 10.84,
+    "end": 11
+  },
+  {
+    "word": "coordinates,",
+    "start": 11,
+    "end": 11.68
+  },
+  {
+    "word": "or",
+    "start": 11.68,
+    "end": 11.8
+  },
+  {
+    "word": "a",
+    "start": 11.8,
+    "end": 11.9
+  },
+  {
+    "word": "collection",
+    "start": 11.9,
+    "end": 12.22
+  },
+  {
+    "word": "of",
+    "start": 12.22,
+    "end": 12.42
+  },
+  {
+    "word": "data.",
+    "start": 11.9,
+    "end": 12.86
+  },
+  {
+    "word": "First,",
+    "start": 13.72,
+    "end": 14.22
+  },
+  {
+    "word": "picture",
+    "start": 14.22,
+    "end": 14.54
+  },
+  {
+    "word": "a",
+    "start": 14.54,
+    "end": 14.72
+  },
+  {
+    "word": "simple",
+    "start": 14.72,
+    "end": 15.06
+  },
+  {
+    "word": "shape,",
+    "start": 15.06,
+    "end": 15.54
+  },
+  {
+    "word": "like",
+    "start": 15.54,
+    "end": 15.78
+  },
+  {
+    "word": "a",
+    "start": 15.78,
+    "end": 15.86
+  },
+  {
+    "word": "square",
+    "start": 15.86,
+    "end": 16.18
+  },
+  {
+    "word": "sitting",
+    "start": 16.18,
+    "end": 16.5
+  },
+  {
+    "word": "on",
+    "start": 16.5,
+    "end": 16.7
+  },
+  {
+    "word": "a",
+    "start": 16.7,
+    "end": 16.8
+  },
+  {
+    "word": "coordinate",
+    "start": 16.8,
+    "end": 17.08
+  },
+  {
+    "word": "plane.",
+    "start": 17.08,
+    "end": 17.52
+  },
+  {
+    "word": "If",
+    "start": 17.64,
+    "end": 18.14
+  },
+  {
+    "word": "we",
+    "start": 18.14,
+    "end": 18.2
+  },
+  {
+    "word": "apply",
+    "start": 18.2,
+    "end": 18.5
+  },
+  {
+    "word": "a",
+    "start": 18.5,
+    "end": 18.64
+  },
+  {
+    "word": "matrix",
+    "start": 18.64,
+    "end": 18.96
+  },
+  {
+    "word": "that",
+    "start": 18.96,
+    "end": 19.18
+  },
+  {
+    "word": "rotates",
+    "start": 19.18,
+    "end": 19.68
+  },
+  {
+    "word": "the",
+    "start": 19.68,
+    "end": 19.86
+  },
+  {
+    "word": "plane",
+    "start": 19.86,
+    "end": 20.02
+  },
+  {
+    "word": "by",
+    "start": 20.02,
+    "end": 20.24
+  },
+  {
+    "word": "90",
+    "start": 20.24,
+    "end": 20.56
+  },
+  {
+    "word": "degrees,",
+    "start": 20.56,
+    "end": 21.16
+  },
+  {
+    "word": "the",
+    "start": 21.16,
+    "end": 21.36
+  },
+  {
+    "word": "square",
+    "start": 21.36,
+    "end": 21.58
+  },
+  {
+    "word": "turns.",
+    "start": 21.58,
+    "end": 22.2
+  },
+  {
+    "word": "Now",
+    "start": 22.54,
+    "end": 22.84
+  },
+  {
+    "word": "multiply",
+    "start": 22.84,
+    "end": 23.24
+  },
+  {
+    "word": "that",
+    "start": 23.24,
+    "end": 23.46
+  },
+  {
+    "word": "same",
+    "start": 23.46,
+    "end": 23.78
+  },
+  {
+    "word": "square",
+    "start": 23.78,
+    "end": 24.12
+  },
+  {
+    "word": "by",
+    "start": 24.12,
+    "end": 24.36
+  },
+  {
+    "word": "another",
+    "start": 24.36,
+    "end": 24.66
+  },
+  {
+    "word": "matrix",
+    "start": 24.66,
+    "end": 25.04
+  },
+  {
+    "word": "that",
+    "start": 25.04,
+    "end": 25.26
+  },
+  {
+    "word": "stretches",
+    "start": 25.26,
+    "end": 25.64
+  },
+  {
+    "word": "it",
+    "start": 25.64,
+    "end": 25.82
+  },
+  {
+    "word": "horizontally.",
+    "start": 25.82,
+    "end": 26.62
+  },
+  {
+    "word": "The",
+    "start": 27.12,
+    "end": 27.2
+  },
+  {
+    "word": "two",
+    "start": 27.2,
+    "end": 27.32
+  },
+  {
+    "word": "matrices",
+    "start": 27.32,
+    "end": 27.8
+  },
+  {
+    "word": "multiplied",
+    "start": 27.8,
+    "end": 28.3
+  },
+  {
+    "word": "together",
+    "start": 28.3,
+    "end": 28.68
+  },
+  {
+    "word": "produce",
+    "start": 28.68,
+    "end": 29.12
+  },
+  {
+    "word": "a",
+    "start": 29.12,
+    "end": 29.28
+  },
+  {
+    "word": "single",
+    "start": 29.28,
+    "end": 29.62
+  },
+  {
+    "word": "matrix",
+    "start": 29.62,
+    "end": 30.04
+  },
+  {
+    "word": "that",
+    "start": 30.04,
+    "end": 30.26
+  },
+  {
+    "word": "does",
+    "start": 30.26,
+    "end": 30.4
+  },
+  {
+    "word": "both",
+    "start": 30.4,
+    "end": 30.66
+  },
+  {
+    "word": "actions",
+    "start": 30.66,
+    "end": 31.14
+  },
+  {
+    "word": "at",
+    "start": 31.14,
+    "end": 31.38
+  },
+  {
+    "word": "once,",
+    "start": 31.12,
+    "end": 31.88
+  },
+  {
+    "word": "rotation",
+    "start": 31.88,
+    "end": 32.5
+  },
+  {
+    "word": "followed",
+    "start": 32.5,
+    "end": 32.84
+  },
+  {
+    "word": "by",
+    "start": 32.84,
+    "end": 33.06
+  },
+  {
+    "word": "scaling.",
+    "start": 33.06,
+    "end": 33.64
+  },
+  {
+    "word": "This",
+    "start": 33.98,
+    "end": 34.28
+  },
+  {
+    "word": "visual",
+    "start": 34.28,
+    "end": 34.58
+  },
+  {
+    "word": "shows",
+    "start": 34.58,
+    "end": 34.88
+  },
+  {
+    "word": "how",
+    "start": 34.88,
+    "end": 35.12
+  },
+  {
+    "word": "matrix",
+    "start": 35.12,
+    "end": 35.54
+  },
+  {
+    "word": "multiplication",
+    "start": 35.54,
+    "end": 36.16
+  },
+  {
+    "word": "combines",
+    "start": 36.16,
+    "end": 36.82
+  },
+  {
+    "word": "transformations.",
+    "start": 36.82,
+    "end": 37.8
+  },
+  {
+    "word": "Next,",
+    "start": 38.56,
+    "end": 38.98
+  },
+  {
+    "word": "think",
+    "start": 38.98,
+    "end": 39.2
+  },
+  {
+    "word": "of",
+    "start": 39.2,
+    "end": 39.28
+  },
+  {
+    "word": "a",
+    "start": 39.28,
+    "end": 39.38
+  },
+  {
+    "word": "spreadsheet",
+    "start": 39.38,
+    "end": 39.8
+  },
+  {
+    "word": "where",
+    "start": 39.8,
+    "end": 40.08
+  },
+  {
+    "word": "each",
+    "start": 40.08,
+    "end": 40.3
+  },
+  {
+    "word": "row",
+    "start": 40.3,
+    "end": 40.52
+  },
+  {
+    "word": "represents",
+    "start": 40.52,
+    "end": 41
+  },
+  {
+    "word": "an",
+    "start": 41,
+    "end": 41.12
+  },
+  {
+    "word": "object",
+    "start": 41.12,
+    "end": 41.52
+  },
+  {
+    "word": "and",
+    "start": 41.52,
+    "end": 41.82
+  },
+  {
+    "word": "each",
+    "start": 41.82,
+    "end": 41.96
+  },
+  {
+    "word": "column",
+    "start": 41.96,
+    "end": 42.36
+  },
+  {
+    "word": "an",
+    "start": 42.36,
+    "end": 42.5
+  },
+  {
+    "word": "attribute.",
+    "start": 42.5,
+    "end": 43.22
+  },
+  {
+    "word": "A",
+    "start": 43.14,
+    "end": 43.72
+  },
+  {
+    "word": "company",
+    "start": 43.72,
+    "end": 43.94
+  },
+  {
+    "word": "that",
+    "start": 43.94,
+    "end": 44.1
+  },
+  {
+    "word": "makes",
+    "start": 44.1,
+    "end": 44.3
+  },
+  {
+    "word": "furniture",
+    "start": 44.3,
+    "end": 44.68
+  },
+  {
+    "word": "might",
+    "start": 44.68,
+    "end": 44.98
+  },
+  {
+    "word": "record",
+    "start": 44.98,
+    "end": 45.3
+  },
+  {
+    "word": "production",
+    "start": 45.3,
+    "end": 45.74
+  },
+  {
+    "word": "in",
+    "start": 45.74,
+    "end": 45.98
+  },
+  {
+    "word": "a",
+    "start": 45.98,
+    "end": 46.1
+  },
+  {
+    "word": "3x2",
+    "start": 46.1,
+    "end": 46.66
+  },
+  {
+    "word": "matrix.",
+    "start": 46.66,
+    "end": 47.34
+  },
+  {
+    "word": "Three",
+    "start": 47.4,
+    "end": 47.68
+  },
+  {
+    "word": "plants",
+    "start": 47.68,
+    "end": 48.02
+  },
+  {
+    "word": "as",
+    "start": 48.02,
+    "end": 48.16
+  },
+  {
+    "word": "rows,",
+    "start": 48.16,
+    "end": 48.68
+  },
+  {
+    "word": "two",
+    "start": 48.68,
+    "end": 48.84
+  },
+  {
+    "word": "years",
+    "start": 48.84,
+    "end": 49.14
+  },
+  {
+    "word": "as",
+    "start": 49.14,
+    "end": 49.38
+  },
+  {
+    "word": "columns.",
+    "start": 49.38,
+    "end": 49.96
+  },
+  {
+    "word": "By",
+    "start": 50.22,
+    "end": 50.62
+  },
+  {
+    "word": "adding",
+    "start": 50.62,
+    "end": 50.86
+  },
+  {
+    "word": "across",
+    "start": 50.86,
+    "end": 51.2
+  },
+  {
+    "word": "rows,",
+    "start": 51.2,
+    "end": 51.72
+  },
+  {
+    "word": "you",
+    "start": 51.72,
+    "end": 51.8
+  },
+  {
+    "word": "see",
+    "start": 51.8,
+    "end": 51.92
+  },
+  {
+    "word": "each",
+    "start": 51.92,
+    "end": 52.18
+  },
+  {
+    "word": "plant's",
+    "start": 52.18,
+    "end": 52.5
+  },
+  {
+    "word": "total",
+    "start": 52.5,
+    "end": 52.78
+  },
+  {
+    "word": "output.",
+    "start": 52.78,
+    "end": 53.34
+  },
+  {
+    "word": "By",
+    "start": 53.62,
+    "end": 53.7
+  },
+  {
+    "word": "adding",
+    "start": 53.7,
+    "end": 53.96
+  },
+  {
+    "word": "down",
+    "start": 53.96,
+    "end": 54.22
+  },
+  {
+    "word": "columns",
+    "start": 54.22,
+    "end": 54.64
+  },
+  {
+    "word": "you",
+    "start": 54.64,
+    "end": 54.82
+  },
+  {
+    "word": "compare",
+    "start": 54.82,
+    "end": 55.14
+  },
+  {
+    "word": "yearly",
+    "start": 55.14,
+    "end": 55.52
+  },
+  {
+    "word": "totals,",
+    "start": 55.52,
+    "end": 56.12
+  },
+  {
+    "word": "and",
+    "start": 56.12,
+    "end": 56.52
+  },
+  {
+    "word": "you",
+    "start": 56.52,
+    "end": 56.6
+  },
+  {
+    "word": "can",
+    "start": 56.6,
+    "end": 56.72
+  },
+  {
+    "word": "even",
+    "start": 56.72,
+    "end": 56.9
+  },
+  {
+    "word": "forecast",
+    "start": 56.9,
+    "end": 57.46
+  },
+  {
+    "word": "future",
+    "start": 57.46,
+    "end": 57.76
+  },
+  {
+    "word": "demand",
+    "start": 57.76,
+    "end": 58.12
+  },
+  {
+    "word": "by",
+    "start": 58.12,
+    "end": 58.38
+  },
+  {
+    "word": "extending",
+    "start": 57.86,
+    "end": 58.74
+  },
+  {
+    "word": "the",
+    "start": 58.74,
+    "end": 58.9
+  },
+  {
+    "word": "pattern.",
+    "start": 58.9,
+    "end": 59.36
+  },
+  {
+    "word": "Now",
+    "start": 60.1,
+    "end": 60.38
+  },
+  {
+    "word": "consider",
+    "start": 60.38,
+    "end": 60.76
+  },
+  {
+    "word": "solving",
+    "start": 60.76,
+    "end": 61.1
+  },
+  {
+    "word": "a",
+    "start": 61.1,
+    "end": 61.26
+  },
+  {
+    "word": "system",
+    "start": 61.26,
+    "end": 61.52
+  },
+  {
+    "word": "of",
+    "start": 61.52,
+    "end": 61.66
+  },
+  {
+    "word": "equations.",
+    "start": 61.66,
+    "end": 62.28
+  },
+  {
+    "word": "The",
+    "start": 62.6,
+    "end": 62.84
+  },
+  {
+    "word": "coefficients",
+    "start": 62.84,
+    "end": 63.34
+  },
+  {
+    "word": "of",
+    "start": 63.34,
+    "end": 63.54
+  },
+  {
+    "word": "the",
+    "start": 63.54,
+    "end": 63.66
+  },
+  {
+    "word": "unknowns",
+    "start": 63.66,
+    "end": 64.04
+  },
+  {
+    "word": "form",
+    "start": 64.04,
+    "end": 64.48
+  },
+  {
+    "word": "a",
+    "start": 64.48,
+    "end": 64.6
+  },
+  {
+    "word": "matrix.",
+    "start": 64.6,
+    "end": 65.18
+  },
+  {
+    "word": "Multiplying",
+    "start": 65.24,
+    "end": 65.8
+  },
+  {
+    "word": "that",
+    "start": 65.8,
+    "end": 65.96
+  },
+  {
+    "word": "matrix",
+    "start": 65.96,
+    "end": 66.26
+  },
+  {
+    "word": "by",
+    "start": 66.26,
+    "end": 66.5
+  },
+  {
+    "word": "the",
+    "start": 66.5,
+    "end": 66.64
+  },
+  {
+    "word": "vector",
+    "start": 66.64,
+    "end": 66.9
+  },
+  {
+    "word": "of",
+    "start": 66.9,
+    "end": 67.1
+  },
+  {
+    "word": "unknowns",
+    "start": 67.1,
+    "end": 67.4
+  },
+  {
+    "word": "yields",
+    "start": 67.4,
+    "end": 67.8
+  },
+  {
+    "word": "the",
+    "start": 67.8,
+    "end": 67.98
+  },
+  {
+    "word": "vector",
+    "start": 67.98,
+    "end": 68.26
+  },
+  {
+    "word": "of",
+    "start": 68.26,
+    "end": 68.4
+  },
+  {
+    "word": "results.",
+    "start": 68.4,
+    "end": 68.96
+  },
+  {
+    "word": "Visualizing",
+    "start": 69.26,
+    "end": 69.9
+  },
+  {
+    "word": "the",
+    "start": 69.9,
+    "end": 70.02
+  },
+  {
+    "word": "matrix",
+    "start": 70.02,
+    "end": 70.34
+  },
+  {
+    "word": "as",
+    "start": 70.34,
+    "end": 70.54
+  },
+  {
+    "word": "a",
+    "start": 70.54,
+    "end": 70.68
+  },
+  {
+    "word": "machine",
+    "start": 70.68,
+    "end": 71.16
+  },
+  {
+    "word": "that",
+    "start": 71.16,
+    "end": 71.48
+  },
+  {
+    "word": "turns",
+    "start": 71.48,
+    "end": 71.76
+  },
+  {
+    "word": "an",
+    "start": 71.76,
+    "end": 71.9
+  },
+  {
+    "word": "input",
+    "start": 71.9,
+    "end": 72.2
+  },
+  {
+    "word": "vector",
+    "start": 72.2,
+    "end": 72.52
+  },
+  {
+    "word": "into",
+    "start": 72.52,
+    "end": 72.8
+  },
+  {
+    "word": "an",
+    "start": 72.8,
+    "end": 72.94
+  },
+  {
+    "word": "output",
+    "start": 72.94,
+    "end": 73.28
+  },
+  {
+    "word": "vector",
+    "start": 73.28,
+    "end": 73.6
+  },
+  {
+    "word": "makes",
+    "start": 73.6,
+    "end": 73.98
+  },
+  {
+    "word": "the",
+    "start": 73.52,
+    "end": 74.14
+  },
+  {
+    "word": "abstract",
+    "start": 74.14,
+    "end": 74.6
+  },
+  {
+    "word": "algebra",
+    "start": 74.6,
+    "end": 75.06
+  },
+  {
+    "word": "feel",
+    "start": 75.06,
+    "end": 75.36
+  },
+  {
+    "word": "concrete.",
+    "start": 75.36,
+    "end": 76.06
+  },
+  {
+    "word": "Across",
+    "start": 76.78,
+    "end": 77.2
+  },
+  {
+    "word": "fields,",
+    "start": 77.2,
+    "end": 77.68
+  },
+  {
+    "word": "from",
+    "start": 77.68,
+    "end": 77.78
+  },
+  {
+    "word": "graphics",
+    "start": 77.78,
+    "end": 78.2
+  },
+  {
+    "word": "and",
+    "start": 78.2,
+    "end": 78.44
+  },
+  {
+    "word": "robotics",
+    "start": 78.44,
+    "end": 78.82
+  },
+  {
+    "word": "to",
+    "start": 78.82,
+    "end": 79.12
+  },
+  {
+    "word": "economics",
+    "start": 79.12,
+    "end": 79.62
+  },
+  {
+    "word": "and",
+    "start": 79.62,
+    "end": 79.86
+  },
+  {
+    "word": "medical",
+    "start": 79.86,
+    "end": 80.06
+  },
+  {
+    "word": "imaging,",
+    "start": 80.06,
+    "end": 80.82
+  },
+  {
+    "word": "matrices",
+    "start": 80.82,
+    "end": 81.28
+  },
+  {
+    "word": "These",
+    "start": 81.42,
+    "end": 81.44
+  },
+  {
+    "word": "turn",
+    "start": 81.44,
+    "end": 81.62
+  },
+  {
+    "word": "complex",
+    "start": 81.62,
+    "end": 82.12
+  },
+  {
+    "word": "relationships",
+    "start": 82.12,
+    "end": 82.72
+  },
+  {
+    "word": "into",
+    "start": 82.72,
+    "end": 83
+  },
+  {
+    "word": "tidy,",
+    "start": 83,
+    "end": 83.56
+  },
+  {
+    "word": "manipulable",
+    "start": 83.56,
+    "end": 84.16
+  },
+  {
+    "word": "arrays.",
+    "start": 84.16,
+    "end": 84.86
+  },
+  {
+    "word": "The",
+    "start": 84.76,
+    "end": 85.34
+  },
+  {
+    "word": "key",
+    "start": 85.34,
+    "end": 85.44
+  },
+  {
+    "word": "takeaway?",
+    "start": 85.44,
+    "end": 86
+  },
+  {
+    "word": "A",
+    "start": 85.76,
+    "end": 86.32
+  },
+  {
+    "word": "matrix",
+    "start": 86.32,
+    "end": 86.62
+  },
+  {
+    "word": "is",
+    "start": 86.62,
+    "end": 86.82
+  },
+  {
+    "word": "a",
+    "start": 86.82,
+    "end": 86.92
+  },
+  {
+    "word": "versatile",
+    "start": 86.92,
+    "end": 87.3
+  },
+  {
+    "word": "language",
+    "start": 87.3,
+    "end": 87.68
+  },
+  {
+    "word": "that",
+    "start": 87.68,
+    "end": 87.92
+  },
+  {
+    "word": "lets",
+    "start": 87.92,
+    "end": 88.06
+  },
+  {
+    "word": "us",
+    "start": 88.06,
+    "end": 88.2
+  },
+  {
+    "word": "encode,",
+    "start": 88.2,
+    "end": 88.92
+  },
+  {
+    "word": "combine,",
+    "start": 88.92,
+    "end": 89.44
+  },
+  {
+    "word": "and",
+    "start": 89.44,
+    "end": 89.58
+  },
+  {
+    "word": "solve",
+    "start": 89.58,
+    "end": 89.88
+  },
+  {
+    "word": "linear",
+    "start": 89.88,
+    "end": 90.16
+  },
+  {
+    "word": "relationships",
+    "start": 90.16,
+    "end": 90.82
+  },
+  {
+    "word": "in",
+    "start": 90.48,
+    "end": 91.12
+  },
+  {
+    "word": "a",
+    "start": 91.12,
+    "end": 91.14
+  },
+  {
+    "word": "way",
+    "start": 91.14,
+    "end": 91.26
+  },
+  {
+    "word": "that's",
+    "start": 91.26,
+    "end": 91.42
+  },
+  {
+    "word": "both",
+    "start": 91.42,
+    "end": 91.6
+  },
+  {
+    "word": "visual",
+    "start": 91.6,
+    "end": 92.04
+  },
+  {
+    "word": "and",
+    "start": 92.04,
+    "end": 92.42
+  },
+  {
+    "word": "computational.",
+    "start": 92.42,
+    "end": 93.3
+  }
+]
