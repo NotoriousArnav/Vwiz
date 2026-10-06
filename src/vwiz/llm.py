@@ -365,12 +365,16 @@ def generate_beat_code(
     print(
         f"[vwiz] codegen: beat {beat_name!r} requesting ({beat_seconds:.1f}s budget)…", flush=True
     )
-    with _futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(active.invoke, messages)
-        try:
-            reply = future.result(timeout=150)
-        except _futures.TimeoutError as exc:
-            raise RuntimeError(f"codegen timed out after 150s for beat {beat_name!r}") from exc
+    # NOTE: deliberately not a `with` block — its exit would
+    # shutdown(wait=True) on the hung worker and freeze the turn.
+    executor = _futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(active.invoke, messages)
+    try:
+        reply = future.result(timeout=150)
+    except _futures.TimeoutError as exc:
+        raise RuntimeError(f"codegen timed out after 150s for beat {beat_name!r}") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     raw = chunk_text(reply)
     if not raw or not raw.strip():
         raise RuntimeError(f"empty codegen reply for beat {beat_name!r}")

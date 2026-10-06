@@ -139,15 +139,20 @@ def synthesize(
     # Hard bound in this process, not the HTTP layer: httpx read timeouts do
     # not fire on a slow-but-open response, which froze the UI past the 120s
     # client timeout. future.result raises no matter where the socket sits.
-    with _futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_attempt)
-        try:
-            path = future.result(timeout=180)
-        except _futures.TimeoutError as exc:
-            raise AudioError(
-                f"TTS timed out after 180s for beat {name!r} ({len(script)} chars) — "
-                "the request produced no file; retry, or shorten the beat"
-            ) from exc
+    # NOTE: deliberately not a `with` block. Exiting one calls
+    # shutdown(wait=True), which waits for the hung worker thread — the UI
+    # would freeze exactly as if there were no timeout at all.
+    executor = _futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(_attempt)
+    try:
+        path = future.result(timeout=180)
+    except _futures.TimeoutError as exc:
+        raise AudioError(
+            f"TTS timed out after 180s for beat {name!r} ({len(script)} chars) — "
+            "the request produced no file; retry, or shorten the beat"
+        ) from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     print(
         f"[vwiz] tts: beat {name!r} via {path} ({time.monotonic() - t0:.1f}s)",
         flush=True,
