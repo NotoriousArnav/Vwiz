@@ -108,29 +108,50 @@ def synthesize(
     out = settings.renders_dir / chat_id / f"{name}.wav"
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    import concurrent.futures as _futures
     import time
 
     t0 = time.monotonic()
     style_tag = f" style={style!r}" if style.strip() else ""
-    print(f"[vwiz] tts: beat {name!r}{style_tag} synthesizing…", flush=True)
-    try:
-        _synthesize_interactions(script, out, settings, style=style)
-        print(
-            f"[vwiz] tts: beat {name!r} via interactions ({time.monotonic() - t0:.1f}s)",
-            flush=True,
-        )
-    except Exception as exc:
-        # Interactions is new surface; the legacy stream is the flat fallback.
-        print(
-            f"[vwiz] tts: beat {name!r} interactions failed ({exc}) — legacy fallback",
-            flush=True,
-        )
+    print(
+        f"[vwiz] tts: beat {name!r}{style_tag} synthesizing ({len(script)} chars)…",
+        flush=True,
+    )
+
+    def _attempt() -> str:
         try:
-            _synthesize_legacy(script, out, settings)
-        except Exception as legacy_exc:
+            _synthesize_interactions(script, out, settings, style=style)
+            return "interactions"
+        except Exception as exc:
+            # Interactions is new surface; the legacy stream is the flat fallback.
+            print(
+                f"[vwiz] tts: beat {name!r} interactions failed ({exc}) — legacy fallback",
+                flush=True,
+            )
+            try:
+                _synthesize_legacy(script, out, settings)
+            except Exception as legacy_exc:
+                raise AudioError(
+                    f"TTS request failed (interactions: {exc}; legacy: {legacy_exc})"
+                ) from legacy_exc
+            return "legacy"
+
+    # Hard bound in this process, not the HTTP layer: httpx read timeouts do
+    # not fire on a slow-but-open response, which froze the UI past the 120s
+    # client timeout. future.result raises no matter where the socket sits.
+    with _futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_attempt)
+        try:
+            path = future.result(timeout=180)
+        except _futures.TimeoutError as exc:
             raise AudioError(
-                f"TTS request failed (interactions: {exc}; legacy: {legacy_exc})"
-            ) from legacy_exc
+                f"TTS timed out after 180s for beat {name!r} ({len(script)} chars) — "
+                "the request produced no file; retry, or shorten the beat"
+            ) from exc
+    print(
+        f"[vwiz] tts: beat {name!r} via {path} ({time.monotonic() - t0:.1f}s)",
+        flush=True,
+    )
     with wave.open(str(out), "rb") as wav:
         seconds = wav.getnframes() / wav.getframerate()
     if seconds <= 0:
